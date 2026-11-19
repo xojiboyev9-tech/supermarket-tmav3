@@ -1,0 +1,5 @@
+# JOYI: .gitignore  (GitHub'da shu yo'l bilan yarating)
+node_modules
+.env
+data.json
+dist
