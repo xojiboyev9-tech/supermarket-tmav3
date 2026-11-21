@@ -11,5 +11,6 @@ WORKDIR /app
 COPY backend/package.json ./
 RUN npm install --omit=dev
 COPY backend/src ./src
+COPY backend/data ./data
 COPY --from=web /web/dist ./public
 CMD ["sh","-c","node src/migrate.js && node src/server.js"]
