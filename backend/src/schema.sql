@@ -70,4 +70,27 @@ create table if not exists broadcasts(
   finished_at timestamptz
 );
 
+create table if not exists blocked_users(
+  tg_id bigint primary key,
+  name text,
+  reason text not null default 'ddos',
+  hits int not null default 0,
+  ip text,
+  auto boolean not null default true,
+  blocked_by bigint,
+  blocked_at timestamptz default now(),
+  expires_at timestamptz
+);
+create index if not exists blocked_users_at_idx on blocked_users(blocked_at desc);
+create index if not exists orders_user_id_idx on orders(user_id,id desc);
+create index if not exists orders_status_idx on orders(status,id desc);
+create index if not exists orders_created_idx on orders(created_at desc);
+create index if not exists order_items_order_idx on order_items(order_id);
+create index if not exists bundle_items_bundle_idx on bundle_items(bundle_id);
+create index if not exists audit_at_idx on audit(at desc);
+create index if not exists users_card_status_idx on users(card_status) where card_status is not null;
+create index if not exists categories_parent_idx on categories(parent);
+create index if not exists products_sale_idx on products(sale_until) where active and sale_price is not null;
+
+
 
