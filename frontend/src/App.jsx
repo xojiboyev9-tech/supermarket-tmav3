@@ -76,7 +76,9 @@ const RU={
   "Muddatsiz aksiya":"Акция без ограничения времени","O'tgan vaqt kiritilgan":"Указано прошедшее время",
   "Telegramdan raqamni ulashish":"Поделиться номером из Telegram",
   "Bir marta kiritiladi — keyingi buyurtmalarda so'ralmaydi":"Вводится один раз — в следующих заказах запрашиваться не будет",
-  "Xabarlar":"Рассылка","Xabar yuborish":"Отправить рассылку"
+  "Xabarlar":"Рассылка","Xabar yuborish":"Отправить рассылку",
+  "Xavfsizlik":"Безопасность","Bloklangan ID lar":"Заблокированные ID",
+  "Bloklash":"Заблокировать","Blokdan chiqarish":"Разблокировать"
 }
 
 const fmtPhone=p=>{const s=String(p||'').replace(/\D/g,'');return s.length===12&&s.startsWith('998')?`+998 ${s.slice(3,5)} ${s.slice(5,8)} ${s.slice(8,10)} ${s.slice(10)}`:(s?'+'+s:'')}
@@ -1453,10 +1455,21 @@ function Cats({d,act}){
   </div>
 }
 
-function Customers(){
+function Customers({act}){
   const {t,so}=useLang()
-  const [q,setQ]=useState(''),[l,setL]=useState([]),dq=useDebounced(q);useEffect(()=>{api('/api/customers?q='+encodeURIComponent(dq)).then(setL).catch(()=>{})},[dq])
-  return <><input className="search search-plain" placeholder="🔍 Ism, telefon yoki karta raqami" value={q} onChange={e=>setQ(e.target.value)}/><div className="card"><h2>👥 {t("Mijozlar")} · {l.length}</h2>{l.map(c=><div className="row" key={c.tg_id}><div className="row-txt"><b>{c.name||c.tg_id}</b>{c.card_number&&<span className="badge red" style={{marginLeft:6}}>💳 {c.card_number}</span>}<div className="m">+{c.phone} · {c.orders} {t("ta")} · {so(c.spent)}</div></div><span className="row-acts"><a className="btn s g" style={{textDecoration:'none'}} href={`tel:+${c.phone}`}>📞</a></span></div>)}</div></>
+  const [q,setQ]=useState(''),[l,setL]=useState([]),[ver,setVer]=useState(0),dq=useDebounced(q)
+  useEffect(()=>{api('/api/customers?q='+encodeURIComponent(dq)).then(setL).catch(()=>{})},[dq,ver])
+  const toggleBlk=c=>{
+    if(c.blocked){
+      if(!confirm(`${c.name||c.tg_id} blokdan chiqarilsinmi?`))return
+      act(async()=>{await api(`/api/security/blocked/${c.tg_id}`,'DELETE');setVer(v=>v+1)},'Blokdan chiqarildi ✅')
+    }else{
+      const r=prompt(`${c.name||c.tg_id} ni bloklash sababi:`,'Spam / qoidabuzarlik')
+      if(r===null)return
+      act(async()=>{await api('/api/security/block','POST',{tgId:c.tg_id,name:c.name,reason:r||"Admin tomonidan bloklandi"});setVer(v=>v+1)},'Bloklandi 🚫')
+    }
+  }
+  return <><input className="search search-plain" placeholder="🔍 Ism, telefon, ID yoki karta raqami" value={q} onChange={e=>setQ(e.target.value)}/><div className="card"><h2>👥 {t("Mijozlar")} · {l.length}</h2>{l.map(c=><div className="row" key={c.tg_id}><div className="row-txt"><b>{c.name||c.tg_id}</b>{c.card_number&&<span className="badge red" style={{marginLeft:6}}>💳 {c.card_number}</span>}{c.blocked&&<span className="badge red" style={{marginLeft:6}}>🚫 Blok</span>}<div className="m">{c.phone?`+${c.phone} · `:''}ID: {c.tg_id} · {c.orders} {t("ta")} · {so(c.spent)}</div></div><span className="row-acts">{c.phone&&<a className="btn s g" style={{textDecoration:'none'}} href={`tel:+${c.phone}`}>📞</a>}{c.role!=='superadmin'&&<button type="button" className={'btn s '+(c.blocked?'k':'g')} title={c.blocked?t("Blokdan chiqarish"):t("Bloklash")} onClick={()=>toggleBlk(c)}>{c.blocked?'🔓':'🚫'}</button>}</span></div>)}</div></>
 }
 
 function AdminCards({act,say}){
@@ -1691,15 +1704,72 @@ function Settings({d,act,onPreviewAnim}){
     </>}</>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
-const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(product|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
+function AdminSecurity({act,say}){
+  const {t}=useLang()
+  const [data,setData]=useState({items:[],stats:{total:0,auto:0,manual:0,dropped:0},thresholds:{burstSoft:35,burstBlock:60,minBlock:220,botBurstBlock:20}})
+  const [ver,setVer]=useState(0),[q,setQ]=useState(''),[tgId,setTgId]=useState(''),[reason,setReason]=useState('')
+  const go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
+  useEffect(()=>{api('/api/security/blocked').then(setData).catch(()=>{})},[ver])
+
+  const filtered=data.items.filter(x=>!q||`${x.tg_id} ${x.display_name||''} ${x.reason||''} ${x.ip||''} ${x.phone||''}`.toLowerCase().includes(q.toLowerCase()))
+
+  return <>
+    <div className="prof-stats" style={{marginTop:0,marginBottom:12,paddingTop:0,borderTop:0}}>
+      <div className="pstat hi"><span>🚫 Bloklangan</span><b>{data.stats.total}</b></div>
+      <div className="pstat"><span>🤖 Avto-DDoS</span><b>{data.stats.auto}</b></div>
+      <div className="pstat"><span>🛡️ To'silgan</span><b>{data.stats.dropped}</b></div>
+    </div>
+
+    <div className="card" style={{background:'linear-gradient(135deg,#FFF1F2 0%,#FFE4E6 100%)',borderColor:'#FECDD3'}}>
+      <h2 style={{color:'var(--b7)',marginBottom:4}}>🛡️ Avtomatik DDoS himoya faol</h2>
+      <div className="m" style={{color:'var(--t2)'}}>
+        • Mini App: 10 soniyada <b>{data.thresholds.burstBlock}+</b> yoki 1 daqiqada <b>{data.thresholds.minBlock}+</b> so'rov yuborgan ID avtomatik bloklanadi.<br/>
+        • Telegram Bot: 10 soniyada <b>{data.thresholds.botBurstBlock}+</b> xabar yuborgan ID avtomatik bloklanadi.<br/>
+        • Buyurtma (5/daqiqa) va karta arizasi (3/10 daqiqa) spamlari ham cheklangan. Super Admin va Adminlar avtomatik bloklanmaydi.
+      </div>
+    </div>
+
+    <div className="card">
+      <h2>🚫 Qo'lda Telegram ID bloklash</h2>
+      <div className="gap">
+        <input className="in" style={{flex:1}} inputMode="numeric" placeholder="Telegram ID" value={tgId} onChange={e=>setTgId(digits(e.target.value))}/>
+        <input className="in" style={{flex:1.4}} placeholder="Sabab (ixtiyoriy)" value={reason} onChange={e=>setReason(e.target.value)}/>
+      </div>
+      <button className="btn s" disabled={!tgId} onClick={()=>go(async()=>{await api('/api/security/block','POST',{tgId,reason:reason||'Admin tomonidan bloklandi'});setTgId('');setReason('')},'ID bloklandi 🚫')}>{t("Bloklash")}</button>
+    </div>
+
+    <input className="search search-plain" placeholder="🔍 ID, ism, sabab yoki IP bo'yicha qidirish" value={q} onChange={e=>setQ(e.target.value)}/>
+    <div className="card">
+      <h2>📋 {t("Bloklangan ID lar")} · {filtered.length}</h2>
+      {filtered.map(x=><div key={x.tg_id} className="cat-row-wrap" style={{padding:'10px 0'}}>
+        <div className="row" style={{margin:0}}>
+          <div className="row-txt">
+            <b>{x.display_name||x.tg_id}</b>
+            <span className={'badge '+(x.auto?'red':'amber')} style={{marginLeft:6}}>{x.auto?'🤖 Avto-DDoS':"✋ Qo'lda"}</span>
+            <div className="m">🆔 <b>{x.tg_id}</b>{x.phone?` · +${x.phone}`:''}{x.hits>0?` · ⚡ ${x.hits} so'rov`:''}</div>
+            <div className="m">⚡ {x.reason}{x.ip?` · 🌐 ${x.ip}`:''}</div>
+            <div className="m">🕒 {fmtDt(x.blocked_at)}</div>
+          </div>
+          <span className="row-acts">
+            <button type="button" className="btn s g" onClick={()=>copyText(x.tg_id,()=>say(t("Nusxalandi ✅")))}>📋</button>
+            <button type="button" className="btn s k" onClick={()=>confirm(`${x.display_name||x.tg_id} blokdan chiqarilsinmi?`)&&go(()=>api(`/api/security/blocked/${x.tg_id}`,'DELETE'),'Blokdan chiqarildi ✅')}>🔓</button>
+          </span>
+        </div>
+      </div>)}
+      {!filtered.length&&<div className="m">Bloklangan ID lar yo'q ✅</div>}
+    </div>
+  </>
+}
+
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(product|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
   const {t,so}=useLang()
   const [a,setA]=useState([]),[g,setG]=useState('all'),[per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   useEffect(()=>{api(`/api/audit?from=${from}&to=${to}`).then(setA).catch(()=>{})},[from,to])
   const G=AG.find(x=>x[0]===g),list=G[2]?a.filter(x=>G[2].test(x.action)):a,col=x=>(AG.find(z=>z[2]&&z[2].test(x.action))||AG[0])[3]
-  const adet=x=>{const z=x.detail||{};if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
+  const adet=x=>{const z=x.detail||{};if(z.reason)return z.reason+(z.ip?' · '+z.ip:'');if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     <div className="chips">{AG.map(([k,l])=><button key={k} className={'chip'+(g===k?' on':'')} onClick={()=>setG(k)}>{t(l)}</button>)}</div>
@@ -1710,10 +1780,10 @@ function Audit(){
 function Admin({d,act,say,onPreviewAnim}){
   const {t}=useLang()
   const isW=d.role==='worker',canBc=d.role==='superadmin'||!!d.user.canBroadcast
-  const tabs=isW?[['p','Tovarlar']]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p','Tovarlar'],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],...(canBc?[['b','Xabarlar']]:[]),['m','Mijozlar'],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
+  const tabs=isW?[['p','Tovarlar']]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p','Tovarlar'],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],...(canBc?[['b','Xabarlar']]:[]),['m','Mijozlar'],['x',t('Xavfsizlik')+(d.blockedCount?` (${d.blockedCount})`:'')],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
   const [tb,setT]=useState(tabs[0][0])
-  return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>setT(k)}>{k==='k'?l:t(l)}</button>)}</div>
-    {tb==='d'&&<Dash/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say}/>}{tb==='p'&&<Products d={d} act={act}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
+  return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>setT(k)}>{(k==='k'||k==='x')?l:t(l)}</button>)}</div>
+    {tb==='d'&&<Dash/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say}/>}{tb==='p'&&<Products d={d} act={act}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
 export default function App(){
@@ -1731,7 +1801,13 @@ export default function App(){
     }
   }).catch(e=>setErr(e.message)),[])
 
-  useEffect(()=>{tg?.ready();tg?.expand();load();const h=setInterval(load,20000);return()=>clearInterval(h)},[load])
+  useEffect(()=>{
+    tg?.ready();tg?.expand();load()
+    const h=setInterval(()=>{if(!document.hidden)load()},30000)
+    const onVis=()=>{if(!document.hidden)load()}
+    document.addEventListener('visibilitychange',onVis)
+    return()=>{clearInterval(h);document.removeEventListener('visibilitychange',onVis)}
+  },[load])
 
   const toggleLang=()=>{
     const next=lang==='ru'?'uz':'ru'

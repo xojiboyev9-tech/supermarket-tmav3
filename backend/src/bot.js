@@ -1,5 +1,5 @@
 // JOYI: backend/src/bot.js  (GitHub'da shu yo'l bilan yarating)
-const {Telegraf,Markup}=require('telegraf');const {q,audit}=require('./db');const O=require('./orders');
+const {Telegraf,Markup}=require('telegraf');const {q,audit}=require('./db');const O=require('./orders');const {checkBotFlood}=require('./security');
 const bot=new Telegraf(process.env.BOT_TOKEN||'0:x');
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const so=(n,l='uz')=>Number(n).toLocaleString('ru-RU')+(l==='ru'?' сум':" so'm");
@@ -11,6 +11,13 @@ const canBroadcast=u=>Boolean(u&&(u.role==='superadmin'||(u.role==='admin'&&u.ca
 const staffIds=async()=>(await q(`select tg_id from users where role in ${STAFF}`)).rows.map(r=>r.tg_id);
 const send=(id,t,kb)=>bot.telegram.sendMessage(id,t,{parse_mode:'HTML',...(kb||{})}).catch(e=>console.error('send',id,e.message));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+bot.use(async(ctx,next)=>{
+ if(!ctx.from?.id)return next();
+ const u=await me(ctx.from.id).catch(()=>null);
+ const chk=checkBotFlood(ctx.from,u?.role||'user');
+ if(!chk.ok)return;
+ return next();
+});
 const T={
  uz:{
   welcome:r=>`Xush kelibsiz!${r&&r!=='user'?` Rol: ${r}`:''}`,
@@ -252,8 +259,10 @@ const notifyCardApproved=async(userId,num)=>{const lg=await userLang(userId);
  send(userId,lg==='ru'?`🎉 <b>Поздравляем!</b> Ваша дисконтная карта TEGEN готова.\n💳 Номер карты: <code>${esc(num)}</code>\n💰 Кешбэк <b>2%</b> будет автоматически начисляться при каждом заказе!`:`🎉 <b>Tabriklaymiz!</b> TEGEN Diskont kartangiz tayyor.\n💳 Karta raqami: <code>${esc(num)}</code>\n💰 Har buyurtmangizda karta raqamingiz yuboriladi va <b>2% keshbek</b> qo'shiladi!`)};
 const notifyCardRejected=async userId=>{const lg=await userLang(userId);
  send(userId,lg==='ru'?'❌ Ваша заявка на дисконтную карту отклонена. Вы можете подать заявку повторно в профиле.':'❌ Diskont karta arizangiz rad etildi. Profildan qayta ariza yuborishingiz mumkin.')};
+const notifyAutoBlock=async rec=>{for(const id of (await q("select tg_id from users where role in ('admin','superadmin')")).rows.map(x=>x.tg_id))
+ send(id,`🛡️ <b>DDoS himoyasi — ID bloklandi!</b>\n👤 ${esc(rec.name||'Noma\'lum')} (<code>${rec.tg_id}</code>)\n⚡ Sabab: ${esc(rec.reason)}\n🌐 IP: ${esc(rec.ip||'—')}\n\nAdmin panel → 🛡️ Xavfsizlik bo'limidan boshqaring.`)};
 bot.catch(e=>console.error('bot',e));
 if(process.env.BOT_TOKEN&&process.env.WEBAPP_URL)bot.telegram.setChatMenuButton({menuButton:{type:'web_app',text:"🛒 Do'kon",web_app:{url:process.env.WEBAPP_URL}}}).catch(e=>console.error('menu',e.message));
-module.exports={bot,notifyCardApplied,notifyCardApproved,notifyCardRejected,runBroadcast};
+module.exports={bot,notifyCardApplied,notifyCardApproved,notifyCardRejected,notifyAutoBlock,runBroadcast};
 
 

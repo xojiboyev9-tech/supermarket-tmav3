@@ -43,13 +43,22 @@ exports.createOrder=async(me,b)=>{
  }catch(e){await c.query('rollback');throw e}finally{c.release()}
 };
 const NEXT={new:['accepted','cancelled'],accepted:['preparing','cancelled'],preparing:['ready','cancelled'],ready:['completed'],awaiting_confirm:['cancelled'],age_check:['cancelled'],sub_pending:['cancelled']};
-async function restock(id){if(!(await getSetting('warehouse')).enabled)return;
- await q('update products p set stock=stock+i.qty from order_items i where i.order_id=$1 and i.product_id=p.id and p.stock is not null',[id])}
+async function restock(id,cl=null){if(!(await getSetting('warehouse')).enabled)return;
+ const run=(cl?cl.query.bind(cl):q);
+ await run('update products p set stock=stock+i.qty from order_items i where i.order_id=$1 and i.product_id=p.id and p.stock is not null',[id])}
 exports.setStatus=async(actor,id,status,fee)=>{
- const o=(await q('select * from orders where id=$1',[id])).rows[0];if(!o)throw bad('Buyurtma topilmadi');
- if(!(NEXT[o.status]||[]).includes(status))throw bad(`${o.status} → ${status} mumkin emas`);
- await q('update orders set status=$1 where id=$2',[status,id]);if(status==='accepted'&&o.type==='delivery'&&Math.round(+fee)>0)await q('update orders set delivery_fee=$1,total=subtotal+$1 where id=$2',[Math.round(+fee),id]);if(status==='cancelled')await restock(id);
- await audit(actor,'order.'+status,'order:'+id);N.statusChanged({...o,status});return{...o,status};
+ const c=await pool.connect();
+ try{
+  await c.query('begin');
+  const o=(await c.query('select * from orders where id=$1 for update',[id])).rows[0];
+  if(!o)throw bad('Buyurtma topilmadi');
+  if(!(NEXT[o.status]||[]).includes(status))throw bad(`${o.status} → ${status} mumkin emas`);
+  await c.query('update orders set status=$1 where id=$2',[status,id]);
+  if(status==='accepted'&&o.type==='delivery'&&Math.round(+fee)>0)await c.query('update orders set delivery_fee=$1,total=subtotal+$1 where id=$2',[Math.round(+fee),id]);
+  if(status==='cancelled')await restock(id,c);
+  await c.query('commit');
+  await audit(actor,'order.'+status,'order:'+id);N.statusChanged({...o,status});return{...o,status};
+ }catch(e){await c.query('rollback');throw e}finally{c.release()}
 };
 exports.weigh=async(actor,id,actuals)=>{
  const o=(await q('select * from orders where id=$1',[id])).rows[0];if(!o||!['accepted','preparing'].includes(o.status))throw bad("Hozir tortib bo'lmaydi");
@@ -128,10 +137,34 @@ exports.editRequest=async(userId,id)=>{const o=(await q('select * from orders wh
  await q("update orders set edit_state='requested' where id=$1",[id]);await audit(userId,'order.edit_requested','order:'+id);N.editRequested(o)};
 exports.editDecide=async(actor,id,allow)=>{const o=(await q("select * from orders where id=$1 and edit_state='requested'",[id])).rows[0];if(!o)throw bad("So'rov topilmadi");
  await q('update orders set edit_state=$1 where id=$2',[allow?'allowed':null,id]);await audit(actor,allow?'order.edit_allowed':'order.edit_denied','order:'+id);N.editDecided(o,allow)};
-exports.editApply=async(userId,id,changes)=>{const o=(await q("select * from orders where id=$1 and user_id=$2 and edit_state='allowed'",[id,userId])).rows[0];if(!o)throw bad('Ruxsat yo\'q');
- for(const c of (Array.isArray(changes)?changes:[]).slice(0,60)){const i=(await q("select * from order_items where id=$1 and order_id=$2 and unit='piece'",[+c.itemId,id])).rows[0];if(!i)continue;
-  const n=Math.max(0,Math.min(500,Math.round(+c.qty)));if(!n)await q('delete from order_items where id=$1',[i.id]);else await q('update order_items set qty=$1,ordered_sum=unit_price*$1 where id=$2',[n,i.id])}
- await q('update orders set edit_state=null where id=$1',[id]);await recalc(id);await audit(userId,'order.edited','order:'+id);
- for(const s of []);};
+exports.editApply=async(userId,id,changes)=>{
+ const wh=(await getSetting('warehouse')).enabled,cl=await pool.connect();
+ try{
+  await cl.query('begin');
+  const o=(await cl.query("select * from orders where id=$1 and user_id=$2 and edit_state='allowed' for update",[id,userId])).rows[0];
+  if(!o)throw bad("Ruxsat yo'q");
+  for(const ch of (Array.isArray(changes)?changes:[]).slice(0,60)){
+   const i=(await cl.query("select * from order_items where id=$1 and order_id=$2 and unit='piece'",[+ch.itemId,id])).rows[0];
+   if(!i)continue;
+   const n=Math.max(0,Math.min(500,Math.round(+ch.qty)));
+   const diff=n-Number(i.qty);
+   if(wh&&i.product_id&&diff!==0){
+    const p=(await cl.query('select stock from products where id=$1 for update',[i.product_id])).rows[0];
+    if(p&&p.stock!==null){
+     if(diff>0&&Number(p.stock)<diff)throw bad(`${i.name}: omborda yetarli emas`);
+     await cl.query('update products set stock=stock-$1 where id=$2',[diff,i.product_id]);
+    }
+   }
+   if(!n)await cl.query('delete from order_items where id=$1',[i.id]);
+   else await cl.query('update order_items set qty=$1,ordered_sum=unit_price*$1 where id=$2',[n,i.id]);
+  }
+  await cl.query('update orders set edit_state=null where id=$1',[id]);
+  const items=(await cl.query('select * from order_items where order_id=$1',[id])).rows;
+  if(!items.length)await cl.query("update orders set status='cancelled' where id=$1",[id]);
+  else{const sub=items.reduce((s,i)=>s+(i.actual_sum??i.ordered_sum),0);await cl.query('update orders set subtotal=$1,total=$1+delivery_fee where id=$2',[sub,id])}
+  await cl.query('commit');
+  await audit(userId,'order.edited','order:'+id);
+ }catch(e){await cl.query('rollback');throw e}finally{cl.release()}
+};
 exports.bad=bad;
                                                                                                                                                                  
