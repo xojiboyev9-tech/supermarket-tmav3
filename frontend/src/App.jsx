@@ -33,7 +33,79 @@ const RU={
   "Savdo dinamikasi":"Динамика продаж","Bugun (soatbay)":"Сегодня (по часам)","Ma'lumot yo'q":"Нет данных",
   "Kategoriyalar bo'yicha":"По категориям","O'rtacha chek":"Средний чек","yangi":"новых","bekor":"отмен.",
   "kutilmoqda":"ожидают","faol":"акт.","Tez yetkazish va qulay xarid":"Быстрая доставка и удобные покупки",
-  "Tahrirlash":"Редактировать","Yangi mahsulot":"Новый товар","Savatda":"В корзине"
+  "Tahrirlash":"Редактировать","Yangi mahsulot":"Новый товар","Savatda":"В корзине",
+  "Nabor tarkibi":"Состав набора","Tejamkorlik":"Экономия","bo'lim":"разд.",
+  "Ichki bo'limlar":"Подразделы","Shtrixkod (ixtiyoriy)":"Штрихкод (необязательно)",
+  "Ota kategoriya (ixtiyoriy)":"Родительская категория (необязательно)",
+  "Asosiy kategoriya (yo'q)":"Основная категория (нет)",
+  "Bayram animatsiyasi":"Праздничная анимация","O'chiq":"Выкл","Yangi yil":"Новый год",
+  "Navro'z":"Навруз","Ramazon / Hayit":"Рамадан / Хаит","Kuz":"Осень",
+  "Aksiya / Bayram":"Акция / Праздник","Sinab ko'rish":"Тест","Davomiyligi (soniya)":"Длительность (сек)",
+  "Nabor tavsifi (ixtiyoriy)":"Описание набора (необязательно)"
+}
+
+const ANIM_PRESETS=[
+  {id:'none',icon:'🚫',label:"O'chiq",chars:[]},
+  {id:'newyear',icon:'❄️',label:'Yangi yil',chars:['❄️','❅','✨','🎄','⭐'],garland:true},
+  {id:'navruz',icon:'🌸',label:"Navro'z",chars:['🌸','🌼','🌿','✨','🌷']},
+  {id:'ramazon',icon:'🌙',label:'Ramazon / Hayit',chars:['🌙','✨','⭐','✦']},
+  {id:'autumn',icon:'🍂',label:'Kuz',chars:['🍂','🍁','🍃']},
+  {id:'confetti',icon:'🎉',label:'Aksiya / Bayram',chars:['🎉','🎊','✨','⭐']}
+]
+
+const buildCatTree=cats=>{
+  const byName=new Map(cats.map(c=>[c.name,c]))
+  const kids=new Map()
+  const roots=[]
+  for(const c of cats){
+    if(c.parent&&c.parent!==c.name&&byName.has(c.parent)){
+      if(!kids.has(c.parent))kids.set(c.parent,[])
+      kids.get(c.parent).push(c)
+    }else roots.push(c)
+  }
+  const flat=[],seen=new Set()
+  const walk=(list,depth)=>{
+    for(const c of list){
+      if(seen.has(c.name)||depth>3)continue
+      seen.add(c.name)
+      flat.push({...c,depth})
+      walk(kids.get(c.name)||[],depth+1)
+    }
+  }
+  walk(roots,0)
+  return {byName,roots,childrenOf:n=>kids.get(n)||[],flat}
+}
+
+function FestiveOverlay({preset,duration=10,playKey}){
+  const [stage,setStage]=useState('off')
+  const cfg=ANIM_PRESETS.find(x=>x.id===preset)
+  useEffect(()=>{
+    if(!cfg||cfg.id==='none'||!playKey){setStage('off');return}
+    setStage('run')
+    const ms=Math.max(3,Math.min(20,Number(duration)||10))*1000
+    const fadeAt=Math.max(1200,ms-1600)
+    const t1=setTimeout(()=>setStage('fade'),fadeAt)
+    const t2=setTimeout(()=>setStage('off'),ms)
+    return()=>{clearTimeout(t1);clearTimeout(t2)}
+  },[preset,duration,playKey])
+
+  if(stage==='off'||!cfg||!cfg.chars.length)return null
+  const particles=Array.from({length:24},(_,i)=>{
+    const ch=cfg.chars[i%cfg.chars.length]
+    const x=((i*37+11)%94)+3
+    const dur=(3.8+(i%5)*0.85).toFixed(2)+'s'
+    const delay=((i*0.31)%3.4).toFixed(2)+'s'
+    const sz=(15+(i%4)*4)+'px'
+    const drift=((i%2?1:-1)*(14+(i%4)*10))+'px'
+    const rot=((i%2?1:-1)*(160+(i%3)*90))+'deg'
+    const op=(0.65+(i%3)*0.12).toFixed(2)
+    return <span key={i} className="fp" style={{'--x':x+'%','--dur':dur,'--delay':delay,'--sz':sz,'--drift':drift,'--rot':rot,'--op':op}}>{ch}</span>
+  })
+  return <div className={'festive '+cfg.id+(stage==='fade'?' fading':'')} aria-hidden="true">
+    <div className="festive-glow"/>
+    {cfg.garland&&<div className="festive-garland">{Array.from({length:12},(_,i)=><i key={i}/>)}</div>}
+    {particles}
+  </div>
 }
 
 const LangCtx=createContext('uz')
@@ -176,11 +248,53 @@ function Detail({p,cart,put,close,onWeight}){
   </div></div>
 }
 
+function BundleDetail({b,cart,put,close}){
+  const {t,so,pn}=useLang()
+  const p={...b,bundle:true,category:'Boshqa'}
+  const it=cart[keyOf(p)]
+  const pct=b.old_price>b.price?Math.round((1-b.price/b.old_price)*100):0
+  const saved=b.old_price>b.price?b.old_price-b.price:0
+  const list=Array.isArray(b.items)&&b.items.length?b.items:[]
+  return <div className="sheet" onClick={close}><div className="det" onClick={e=>e.stopPropagation()}>
+    <div className="sheet-handle"/>
+    <div style={{position:'relative'}}><Thumb p={p} cls="dimg"/>{pct>0&&<span className="disc" style={{fontSize:13,padding:'4px 10px'}}>−{pct}%</span>}</div>
+    <h2 style={{marginTop:12,fontSize:19}}>🎁 {b.title}</h2>
+    <div className="gap" style={{alignItems:'baseline',marginBottom:6}}>
+      <div className="dprice">{so(b.price)}</div>
+      {b.old_price>b.price&&<s className="m" style={{fontSize:15}}>{so(b.old_price)}</s>}
+    </div>
+    {saved>0&&<div style={{marginBottom:8}}><span className="save-badge">✨ {t("Tejamkorlik")}: {so(saved)}</span></div>}
+    {b.description&&<p className="m" style={{fontSize:13.5,margin:'6px 0 10px'}}>{b.description}</p>}
+
+    <h2 style={{marginTop:10,marginBottom:6}}>{t("Nabor tarkibi")} ({list.length||(b.parts||[]).length})</h2>
+    <div className="bitem-list">
+      {list.length>0?list.map(x=><div className="bitem" key={x.id}>
+        <div className="bitem-l">
+          <Thumb p={{image:x.image,category:'Boshqa',age_min:x.age_min}} cls="ci sm"/>
+          <div style={{minWidth:0}}>
+            <b>{pn(x)}</b>
+            <span className="m">{so(x.price)}{x.unit==='weight'?' / kg':''}</span>
+          </div>
+        </div>
+        <div className="bitem-r">
+          <span className="bitem-qty">× {Number(x.qty)}</span>
+          <div className="m" style={{marginTop:2}}>{so(Math.round(x.price*Number(x.qty)))}</div>
+        </div>
+      </div>):(b.parts||[]).map((pt,i)=><div className="bitem" key={i}><b>• {pt}</b></div>)}
+    </div>
+
+    <div className="quick-qty">{[1,2,3,5].map(n=><button key={n} type="button" className={it?.qty===n?'on':''} onClick={()=>put(p,{qty:n})}>{n} {t("ta")}</button>)}</div>
+    {it?<div className="gap"><div style={{flex:1}}><QtyControl qty={it.qty} max={20} variant="big" stopProp={false} onChange={n=>put(p,n>0?{qty:n}:null)}/></div><button className="btn" style={{flex:'0 0 auto',width:'auto',padding:'0 22px'}} onClick={close}>OK</button></div>
+      :<button className="btn" onClick={()=>put(p,{qty:1})}>{t("Savatga")}</button>}
+  </div></div>
+}
+
 function Shop({d,cart,setCart,cat,setCat}){
   const {t,so,pn,cn}=useLang()
-  const [q,setQ]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null)
+  const [q,setQ]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[bdet,setBdet]=useState(null)
   const dq=useDebounced(q)
   const home=!dq&&!cat
+  const tree=buildCatTree(d.cats)
 
   const load=useCallback((n,reset)=>{
     if(!dq&&!cat){setItems([]);setMore(false);return}
@@ -203,7 +317,10 @@ function Shop({d,cart,setCart,cat,setCat}){
   }
 
   const openLink=l=>{const m=/(?:v=|youtu\.be\/|shorts\/)([\w-]{11})/.exec(l||'');if(m)setVid(m[1]);else if(l)tg?.openLink?tg.openLink(l):window.open(l)}
-  const curCatObj=d.cats.find(c=>c.name===cat)
+  const curCatObj=tree.byName.get(cat)
+  const parentObj=curCatObj?.parent?tree.byName.get(curCatObj.parent):null
+  const subCats=cat&&!dq?tree.childrenOf(cat):[]
+  const chipList=parentObj?tree.childrenOf(parentObj.name):(subCats.length?subCats:tree.roots)
 
   return <>
     <div className="search-box">
@@ -225,7 +342,7 @@ function Shop({d,cart,setCart,cat,setCat}){
         <div className="hrow">{d.bundles.map(x=>{
           const p={...x,bundle:true,category:'Boshqa'}
           const pct=x.old_price>x.price?Math.round((1-x.price/x.old_price)*100):0
-          return <div className="card bun" key={x.id}>
+          return <div className="card bun" key={x.id} style={{cursor:'pointer'}} onClick={()=>setBdet(x)}>
             <div style={{position:'relative'}}><Thumb p={p}/>{pct>0&&<span className="disc">−{pct}%</span>}</div>
             <div className="bun-body">
               <div className="bun-title">{x.title}</div>
@@ -239,27 +356,47 @@ function Shop({d,cart,setCart,cat,setCat}){
 
       <div className="sec-head"><h2 className="sec">{t("Kategoriyalar")}</h2></div>
       <div className="cat-grid">
-        {d.cats.map((c,i)=><div
-          key={c.name}
-          className={'cat-tile'+(c.image?' has-bg':'')}
-          style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
-          onClick={()=>{setCat(c.name);scrollTo({top:0,behavior:'smooth'})}}
-        >
-          <b>{cn(c)}</b>
-          {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
-        </div>)}
+        {tree.roots.map((c,i)=>{
+          const subCount=tree.childrenOf(c.name).length
+          return <div
+            key={c.name}
+            className={'cat-tile'+(c.image?' has-bg':'')}
+            style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
+            onClick={()=>{setCat(c.name);scrollTo({top:0,behavior:'smooth'})}}
+          >
+            <b>{cn(c)}</b>
+            {subCount>0&&<span className="cat-sub-badge">{subCount} {t("bo'lim")}</span>}
+            {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
+          </div>
+        })}
       </div>
     </>:<>
+      {parentObj&&!dq&&<div className="crumb">
+        <button onClick={()=>setCat('')}>{t("Bosh sahifa")}</button>
+        <span>›</span>
+        <button onClick={()=>setCat(parentObj.name)}>{cn(parentObj)}</button>
+      </div>}
       <div className="cat-bar">
-        <button className="back-btn" aria-label="Back" onClick={()=>{setCat('');setQ('')}}>
+        <button className="back-btn" aria-label="Back" onClick={()=>{if(dq){setQ('')}else if(parentObj){setCat(parentObj.name)}else{setCat('')}}}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
         <h1>{dq?t("Qidiruv natijalari"):(curCatObj?cn(curCatObj):cat)}</h1>
       </div>
 
+      {subCats.length>0&&<>
+        <div className="subcat-grid">
+          {subCats.map(sc=><div className="subcat-tile" key={sc.name} onClick={()=>{setCat(sc.name);scrollTo({top:0,behavior:'smooth'})}}>
+            <span className="sub-ic" style={sc.image?{backgroundImage:`url(${sc.image})`}:{}}>{!sc.image&&(EMO[sc.name]||EMO[cat]||'📁')}</span>
+            <b>{cn(sc)}</b>
+          </div>)}
+        </div>
+      </>}
+
       <div className="chips">
-        <button className={'chip'+(!cat?' on':'')} onClick={()=>setCat('')}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>
-        {d.cats.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
+        {parentObj
+          ?<button className={'chip'+(cat===parentObj.name?' on':'')} onClick={()=>setCat(parentObj.name)}>{t("Hammasi")}</button>
+          :<button className={'chip'+(!cat?' on':'')} onClick={()=>setCat('')}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>}
+        {chipList.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
       </div>
 
       <div className="grid">
@@ -279,24 +416,30 @@ function Shop({d,cart,setCart,cat,setCat}){
 
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}}/>}
     {det&&<Detail p={det} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh}/>}
+    {bdet&&<BundleDetail b={bdet} cart={cart} put={put} close={()=>setBdet(null)}/>}
     {vid&&<div className="sheet" onClick={()=>setVid(null)}><div onClick={e=>e.stopPropagation()}><div className="sheet-handle"/><div className="yt"><iframe src={`https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/></div><a className="btn g" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}} href={`https://youtu.be/${vid}`} target="_blank" rel="noreferrer">YouTube ↗</a><button className="btn g" style={{marginTop:8}} onClick={()=>setVid(null)}>✕</button></div></div>}
   </>
 }
 
 function Catalog({d,go}){
   const {t,cn}=useLang()
+  const tree=buildCatTree(d.cats)
   return <>
     <h1>{t("Katalog")}</h1>
     <div className="cat-grid">
-      {d.cats.map((c,i)=><div
-        key={c.name}
-        className={'cat-tile'+(c.image?' has-bg':'')}
-        style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
-        onClick={()=>go(c.name)}
-      >
-        <b>{cn(c)}</b>
-        {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
-      </div>)}
+      {tree.roots.map((c,i)=>{
+        const subCount=tree.childrenOf(c.name).length
+        return <div
+          key={c.name}
+          className={'cat-tile'+(c.image?' has-bg':'')}
+          style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
+          onClick={()=>go(c.name)}
+        >
+          <b>{cn(c)}</b>
+          {subCount>0&&<span className="cat-sub-badge">{subCount} {t("bo'lim")}</span>}
+          {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
+        </div>
+      })}
     </div>
   </>
 }
@@ -506,7 +649,8 @@ function AdminOrders({d,act}){
 
 function Products({d,act}){
   const {t,so,cn}=useLang()
-  const dept=d.role==='worker'?d.workerDepartment:null,e0={name:'',name_uz:'',description:'',price:'',unit:'piece',image:'',category:dept||d.categories[0],age_min:0,min_grams:0}
+  const tree=buildCatTree(d.cats)
+  const dept=d.role==='worker'?d.workerDepartment:null,e0={name:'',name_uz:'',description:'',barcode:'',price:'',unit:'piece',image:'',category:dept||d.categories[0],age_min:0,min_grams:0}
   const [f,setF]=useState(e0),[q,setQ]=useState(''),[st,setSt]=useState('all'),[list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0),dq=useDebounced(q)
   const set=k=>e=>setF({...f,[k]:e.target.value}),go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
   const load=useCallback((n,reset)=>api(`/api/admin/products?q=${encodeURIComponent(dq)}&state=${st}&page=${n}`).then(r=>{setList(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)}).catch(()=>{}),[dq,st])
@@ -516,17 +660,18 @@ function Products({d,act}){
   return <>{d.pendingProducts.length>0&&<div className="card"><h2>⏳ Tasdiqlash kutilmoqda</h2>{d.pendingProducts.map(r=><div className="row" key={r.id}><span>{r.action}: {r.product.name} <span className="m">({r.worker_name})</span></span>
     <span className="gap"><button className="btn s k" onClick={()=>go(()=>api('/api/changes/'+r.id,'POST',{approve:true}))}>✓</button><button className="btn s g" onClick={()=>go(()=>api('/api/changes/'+r.id,'POST',{approve:false}))}>✕</button></span></div>)}</div>}
     <div className="card"><h2>{f.id?t('Tahrirlash'):t("Yangi mahsulot")}</h2><input className="in" placeholder="Название (русский)" value={f.name} onChange={set('name')}/><input className="in" placeholder="Nomi (o'zbekcha)" value={f.name_uz||''} onChange={set('name_uz')}/>
+      <input className="in" inputMode="numeric" placeholder={t("Shtrixkod (ixtiyoriy)")} value={f.barcode||''} onChange={set('barcode')}/>
       <div className="gap"><input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder={t("Narx (dona yoki kg uchun)")} value={f.price} onChange={e=>setF({...f,price:digits(e.target.value)})}/><select className="in" style={{flex:1}} value={f.unit} onChange={set('unit')}><option value="piece">Dona</option><option value="weight">Og'irlik (kg)</option></select></div>
       {f.unit==='weight'&&<input className="in" type="text" inputMode="numeric" placeholder="Minimal gramm (masalan 250). Bo'sh = summa bilan sotiladi" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>}
-      <div className="gap">{!dept&&<select className="in" style={{flex:2}} value={f.category} onChange={set('category')}>{d.cats.map(c=><option key={c.name} value={c.name}>{cn(c)}</option>)}</select>}
+      <div className="gap">{!dept&&<select className="in" style={{flex:2}} value={f.category} onChange={set('category')}>{tree.flat.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}</select>}
         <select className="in" style={{flex:1}} value={f.age_min||0} onChange={set('age_min')}><option value="0">Yosh: yo'q</option><option value="16">16+</option><option value="18">18+</option><option value="20">20+</option><option value="21">21+</option></select></div>
       <textarea className="in" rows={2} placeholder="Tavsif (ixtiyoriy)" value={f.description||''} onChange={set('description')}/>
       <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:56,height:56,borderRadius:12,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={pick}/></label></div>
       <div className="gap"><button className="btn" style={{flex:1}} onClick={save}>{t("Saqlash")}</button>{f.id&&<button className="btn g" style={{width:'auto'}} onClick={()=>setF(e0)}>{t("Bekor")}</button>}</div></div>
     <input className="search search-plain" placeholder="🔍 Nomi yoki shtrixkod" value={q} onChange={e=>setQ(e.target.value)}/>
     <div className="chips">{[['all','Hammasi'],['on','Faol'],['off','Nofaol']].map(([k,l])=><button key={k} className={'chip'+(st===k?' on':'')} onClick={()=>setSt(k)}>{t(l)}</button>)}</div>
-    {list.map(p=><div className="card" key={p.id} style={{opacity:p.active?1:.55}}><div className="row"><div><b>{p.name}</b>{p.name_uz&&<div className="m">{p.name_uz}</div>}{p.age_min>0&&<span className="age2">{p.age_min}+</span>}<div className="m">{p.category} · {so(p.price)}{p.unit==='weight'?' / kg':''}</div></div>
-      <span className="gap" style={{alignItems:'center'}}>{!dept&&<label className="sw"><input type="checkbox" checked={p.active} onChange={e=>go(()=>api(`/api/products/${p.id}/active`,'PUT',{active:e.target.checked}))}/><i/></label>}<button className="btn s g" onClick={()=>{setF({...p});scrollTo({top:0,behavior:'smooth'})}}>✎</button>{dept&&<button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api('/api/products/'+p.id,'DELETE'),"So'rov yuborildi")}>🗑</button>}</span></div>
+    {list.map(p=><div className="card" key={p.id} style={{opacity:p.active?1:.55}}><div className="row"><div><b>{p.name}</b>{p.name_uz&&<div className="m">{p.name_uz}</div>}{p.age_min>0&&<span className="age2">{p.age_min}+</span>}<div className="m">{p.category} · {so(p.price)}{p.unit==='weight'?' / kg':''}{p.barcode?` · #${p.barcode}`:''}</div></div>
+      <span className="gap" style={{alignItems:'center'}}>{!dept&&<label className="sw"><input type="checkbox" checked={p.active} onChange={e=>go(()=>api(`/api/products/${p.id}/active`,'PUT',{active:e.target.checked}))}/><i/></label>}<button className="btn s g" onClick={()=>{setF({...p,barcode:p.barcode||''});scrollTo({top:0,behavior:'smooth'})}}>✎</button>{dept&&<button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api('/api/products/'+p.id,'DELETE'),"So'rov yuborildi")}>🗑</button>}</span></div>
       {d.warehouseEnabled&&d.role==='superadmin'&&<input className="in" type="number" placeholder="Ombor qoldig'i" defaultValue={p.stock??''} onBlur={e=>go(()=>api(`/api/products/${p.id}/stock`,'PUT',{stock:e.target.value===''?null:e.target.value}))}/>}</div>)}
     {more&&<button className="btn g" onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}</>
 }
@@ -544,13 +689,28 @@ function Banners({act}){
 }
 
 function Cats({d,act}){
-  const {t}=useLang()
-  const e0={name:'',name_ru:'',image:'',sort:0},[f,setF]=useState(e0),[old,setOld]=useState('')
+  const {t,cn}=useLang()
+  const tree=buildCatTree(d.cats)
+  const e0={name:'',name_ru:'',image:'',sort:0,parent:''},[f,setF]=useState(e0),[old,setOld]=useState('')
   const pick=async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setF(o=>({...o,image:u}))}catch(er){alert(er.message)}}
-  return <div className="card"><h2>🗂 {t("Kategoriyalar")}</h2><input className="in" placeholder="Nomi (o'zbekcha)" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/><input className="in" placeholder="Название (русский)" value={f.name_ru||''} onChange={e=>setF({...f,name_ru:e.target.value})}/>
+  const parentOpts=tree.flat.filter(c=>c.name!==old&&c.parent!==old&&c.depth<2)
+  return <div className="card"><h2>🗂 {t("Kategoriyalar")}</h2>
+    <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/>
+    <input className="in" placeholder="Название (русский)" value={f.name_ru||''} onChange={e=>setF({...f,name_ru:e.target.value})}/>
+    <select className="in" value={f.parent||''} onChange={e=>setF({...f,parent:e.target.value})}>
+      <option value="">{t("Asosiy kategoriya (yo'q)")}</option>
+      {parentOpts.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}
+    </select>
     <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick}/></label><input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
-    <button className="btn s" onClick={()=>act(async()=>{await api('/api/cats','POST',{...f,old});setF(e0);setOld('')},'Saqlandi')}>{old?'Saqlash':'+ Kategoriya'}</button>
-    {d.cats.map(c=><div className="row" key={c.name}><span>{EMO[c.name]||'🛒'} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}</span><span className="gap"><button className="btn s g" onClick={()=>{setF({name:c.name,name_ru:c.name_ru||'',image:c.image||'',sort:c.sort||0});setOld(c.name);scrollTo({top:0,behavior:'smooth'})}}>✎</button><button className="btn s g" onClick={()=>confirm("O'chirilsinmi? Tovarlar 'Boshqa'ga o'tadi")&&act(()=>api('/api/cats/'+encodeURIComponent(c.name),'DELETE'))}>🗑</button></span></div>)}</div>
+    <div className="gap" style={{marginBottom:6}}>
+      <button className="btn s" onClick={()=>act(async()=>{await api('/api/cats','POST',{...f,old});setF(e0);setOld('')},'Saqlandi')}>{old?'Saqlash':'+ Kategoriya'}</button>
+      {old&&<button className="btn s g" onClick={()=>{setF(e0);setOld('')}}>{t("Bekor")}</button>}
+    </div>
+    {tree.flat.map(c=><div className="row" key={c.name} style={{paddingLeft:c.depth*16}}>
+      <span>{c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}{EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}</span>
+      <span className="gap"><button className="btn s g" onClick={()=>{setF({name:c.name,name_ru:c.name_ru||'',image:c.image||'',sort:c.sort||0,parent:c.parent||''});setOld(c.name);scrollTo({top:0,behavior:'smooth'})}}>✎</button><button className="btn s g" onClick={()=>confirm("O'chirilsinmi? Tovarlar 'Boshqa'ga o'tadi")&&act(()=>api('/api/cats/'+encodeURIComponent(c.name),'DELETE'))}>🗑</button></span>
+    </div>)}
+  </div>
 }
 
 function Customers(){
@@ -570,6 +730,7 @@ function Content({d,act}){
   return <>
     <Banners act={act}/><Cats d={d} act={act}/>
     <div className="card"><h2>🎁 {t("Naborlar")}</h2><input className="in" placeholder="Nabor nomi (masalan: Yangi yil to'plami)" value={bd.title} onChange={e=>setBd({...bd,title:e.target.value})}/>
+      <textarea className="in" rows={2} placeholder={t("Nabor tavsifi (ixtiyoriy)")} value={bd.description} onChange={e=>setBd({...bd,description:e.target.value})}/>
       <input className="in" type="text" inputMode="numeric" placeholder="Nabor narxi" value={bd.price} onChange={e=>setBd({...bd,price:e.target.value.replace(/\D/g,'').replace(/^0+/,'')})}/>
       <input className="in" placeholder="Mahsulot qo'shish: nomini yozing" value={bq} onChange={e=>setBq(e.target.value)}/>
       {res.map(p=><div className="row" key={p.id}><span>{p.name} <span className="m">{so(p.price)}</span></span><button className="btn s g" onClick={()=>{setBd(b=>({...b,items:b.items.some(i=>i.productId===p.id)?b.items:[...b.items,{productId:p.id,name:p.name,price:p.price,qty:1}]}));setBq('')}}>+</button></div>)}
@@ -583,24 +744,41 @@ function Content({d,act}){
       {c.videos.map(x=>row('videos',x,x.title||x.yt_id))}</div></>
 }
 
-function Settings({d,act}){
+function Settings({d,act,onPreviewAnim}){
   const {t}=useLang()
   const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',role:'worker',name:'',department:d.categories[0]})
+  const [an,setAn]=useState(()=>d.settings.animation||{preset:'none',duration:10})
   return <><div className="card"><h2>{t("🚚 Yetkazib berish")}</h2>
     <label className="row"><span>Yoqilgan</span><input type="checkbox" checked={!!s.enabled} onChange={e=>setS({...s,enabled:e.target.checked})}/></label>
     <label className="m">Minimal buyurtma summasi (so'm)<input className="in" type="text" inputMode="numeric" value={s.minTotal||''} onChange={e=>setS({...s,minTotal:digits(e.target.value)})}/></label>
     <label className="m">Mijozga izoh<input className="in" value={s.note||''} onChange={e=>setS({...s,note:e.target.value})}/></label>
     <div className="m" style={{marginBottom:8}}>Mijoz manzilni yozadi, administrator telefon orqali bog'lanib tasdiqlaydi yoki rad etadi.</div>
     <button className="btn s" onClick={()=>act(()=>api('/api/settings/delivery','PUT',s),'Saqlandi')}>{t("Saqlash")}</button></div>
-    {d.role==='superadmin'&&<><div className="card"><h2>📦 Ombor tizimi</h2><label className="row"><span>Yoqilgan (faqat Super Admin)</span><input type="checkbox" checked={d.warehouseEnabled} onChange={e=>act(()=>api('/api/settings/warehouse','PUT',{enabled:e.target.checked}),'Saqlandi')}/></label></div>
-    <div className="card"><h2>👥 Rollar</h2>{(d.roles||[]).map(x=><div className="row" key={x.tg_id}><span>{x.name||x.tg_id} <span className="m">{x.role}{x.department?' · '+x.department:''}</span></span>{x.role!=='superadmin'&&<button className="btn s g" onClick={()=>act(()=>api('/api/roles','POST',{targetId:x.tg_id,role:'user'}))}>Olib tashlash</button>}</div>)}
-      <input className="in" placeholder="Telegram ID" value={u.targetId} onChange={e=>setU({...u,targetId:e.target.value})}/><input className="in" placeholder="Ism" value={u.name} onChange={e=>setU({...u,name:e.target.value})}/>
-      <div className="gap"><select className="in" style={{flex:1}} value={u.role} onChange={e=>setU({...u,role:e.target.value})}><option value="worker">Bo'lim ishchisi</option><option value="operator">Operator</option><option value="admin">Admin</option></select>
-      {u.role==='worker'&&<select className="in" style={{flex:1}} value={u.department} onChange={e=>setU({...u,department:e.target.value})}>{d.categories.map(c=><option key={c}>{c}</option>)}</select>}</div>
-      <button className="btn" onClick={()=>act(()=>api('/api/roles','POST',u),'Saqlandi')}>Qo'shish</button></div></>}</>
+    {d.role==='superadmin'&&<>
+      <div className="card">
+        <h2>✨ {t("Bayram animatsiyasi")}</h2>
+        <div className="m">Mini App ochilganda orqa fonda ishlaydigan mavsumiy animatsiya (faqat Super Admin).</div>
+        <div className="preset-grid">
+          {ANIM_PRESETS.map(p=><button key={p.id} type="button" className={'preset-card'+(an.preset===p.id?' on':'')} onClick={()=>setAn({...an,preset:p.id})}>
+            <span>{p.icon}</span><b>{t(p.label)}</b>
+          </button>)}
+        </div>
+        {an.preset!=='none'&&<label className="m">{t("Davomiyligi (soniya)")} (3–20)<input className="in" type="text" inputMode="numeric" value={an.duration||''} onChange={e=>setAn({...an,duration:digits(e.target.value)})}/></label>}
+        <div className="gap">
+          <button className="btn s" onClick={()=>act(async()=>{const res=await api('/api/settings/animation','PUT',{preset:an.preset,duration:Number(an.duration)||10});setAn(res);if(res.preset!=='none')onPreviewAnim(res.preset,res.duration)},'Saqlandi')}>{t("Saqlash")}</button>
+          {an.preset!=='none'&&<button className="btn s g" onClick={()=>onPreviewAnim(an.preset,Number(an.duration)||10)}>👁 {t("Sinab ko'rish")}</button>}
+        </div>
+      </div>
+      <div className="card"><h2>📦 Ombor tizimi</h2><label className="row"><span>Yoqilgan (faqat Super Admin)</span><input type="checkbox" checked={d.warehouseEnabled} onChange={e=>act(()=>api('/api/settings/warehouse','PUT',{enabled:e.target.checked}),'Saqlandi')}/></label></div>
+      <div className="card"><h2>👥 Rollar</h2>{(d.roles||[]).map(x=><div className="row" key={x.tg_id}><span>{x.name||x.tg_id} <span className="m">{x.role}{x.department?' · '+x.department:''}</span></span>{x.role!=='superadmin'&&<button className="btn s g" onClick={()=>act(()=>api('/api/roles','POST',{targetId:x.tg_id,role:'user'}))}>Olib tashlash</button>}</div>)}
+        <input className="in" placeholder="Telegram ID" value={u.targetId} onChange={e=>setU({...u,targetId:e.target.value})}/><input className="in" placeholder="Ism" value={u.name} onChange={e=>setU({...u,name:e.target.value})}/>
+        <div className="gap"><select className="in" style={{flex:1}} value={u.role} onChange={e=>setU({...u,role:e.target.value})}><option value="worker">Bo'lim ishchisi</option><option value="operator">Operator</option><option value="admin">Admin</option></select>
+        {u.role==='worker'&&<select className="in" style={{flex:1}} value={u.department} onChange={e=>setU({...u,department:e.target.value})}>{d.categories.map(c=><option key={c}>{c}</option>)}</select>}</div>
+        <button className="btn" onClick={()=>act(()=>api('/api/roles','POST',u),'Saqlandi')}>Qo'shish</button></div>
+    </>}</>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','settings.delivery':'Yetkazish sozlamasi','settings.warehouse':'Ombor tizimi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi"}
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','settings.delivery':'Yetkazish sozlamasi','settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi"}
 const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(product|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^content\./,'#10B981'],['user','👤 Foydalanuvchilar',/^role\./,'#8B5CF6'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
@@ -608,7 +786,7 @@ function Audit(){
   const [a,setA]=useState([]),[g,setG]=useState('all'),[per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   useEffect(()=>{api(`/api/audit?from=${from}&to=${to}`).then(setA).catch(()=>{})},[from,to])
   const G=AG.find(x=>x[0]===g),list=G[2]?a.filter(x=>G[2].test(x.action)):a,col=x=>(AG.find(z=>z[2]&&z[2].test(x.action))||AG[0])[3]
-  const adet=x=>{const z=x.detail||{};if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
+  const adet=x=>{const z=x.detail||{};if(z.preset)return z.preset+(z.duration?` (${z.duration}s)`:'');if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     <div className="chips">{AG.map(([k,l])=><button key={k} className={'chip'+(g===k?' on':'')} onClick={()=>setG(k)}>{t(l)}</button>)}</div>
@@ -616,17 +794,18 @@ function Audit(){
   </>
 }
 
-function Admin({d,act}){
+function Admin({d,act,onPreviewAnim}){
   const {t}=useLang()
   const isW=d.role==='worker',tabs=isW?[['p','Tovarlar']]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p','Tovarlar'],['m','Mijozlar'],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
   const [tb,setT]=useState(tabs[0][0])
   return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>setT(k)}>{t(l)}</button>)}</div>
-    {tb==='d'&&<Dash/>}{tb==='o'&&<AdminOrders d={d} act={act}/>}{tb==='p'&&<Products d={d} act={act}/>}{tb==='m'&&<Customers/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act}/>}{tb==='a'&&<Audit/>}</>
+    {tb==='d'&&<Dash/>}{tb==='o'&&<AdminOrders d={d} act={act}/>}{tb==='p'&&<Products d={d} act={act}/>}{tb==='m'&&<Customers/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
 export default function App(){
   const [lang,setLang]=useState(()=>{try{return localStorage.getItem('lang')||(tg?.initDataUnsafe?.user?.language_code==='ru'?'ru':'uz')}catch{return 'uz'}})
   const [d,setD]=useState(null),[err,setErr]=useState(''),[tab,setTab]=useState('shop'),[cart,setCart]=useState({}),[toast,setToast]=useState(''),[cat,setCat]=useState('')
+  const [animPlay,setAnimPlay]=useState({preset:'none',duration:10,key:0})
   const syncedRef=useRef(false)
   const say=m=>{setToast(m);setTimeout(()=>setToast(''),2500)}
   const load=useCallback(()=>api('/api/init').then(res=>{
@@ -635,6 +814,8 @@ export default function App(){
       syncedRef.current=true
       let saved=null;try{saved=localStorage.getItem('lang')}catch{}
       if(!saved&&res?.user?.lang&&(res.user.lang==='uz'||res.user.lang==='ru'))setLang(res.user.lang)
+      const an=res?.settings?.animation
+      if(an?.preset&&an.preset!=='none')setAnimPlay({preset:an.preset,duration:an.duration||10,key:1})
     }
   }).catch(e=>setErr(e.message)),[])
 
@@ -646,6 +827,8 @@ export default function App(){
     try{localStorage.setItem('lang',next)}catch{}
     api('/api/user/lang','PUT',{lang:next}).catch(()=>{})
   }
+
+  const previewAnim=(preset,duration)=>setAnimPlay(x=>({preset,duration:duration||10,key:x.key+1}))
 
   const t=s=>(lang==='ru'&&RU[s])||s
   const so=n=>Number(n||0).toLocaleString('ru-RU')+(lang==='ru'?' сум':" so'm")
@@ -662,6 +845,7 @@ export default function App(){
   const tabs=[['shop',"Do'kon"],['catalog','Katalog'],['cart','Savat'],['orders','Buyurtma'],['profile','Profil']]
 
   return <LangCtx.Provider value={lang}>
+    <FestiveOverlay preset={animPlay.preset} duration={animPlay.duration} playKey={animPlay.key}/>
     <div className={'app'+(showBar?' has-bar':'')}>
       <div className="top-wrap">
         <div className="top">
@@ -676,7 +860,7 @@ export default function App(){
       {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')}/>}
       {tab==='orders'&&<Orders d={d} act={act}/>}
       {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang}/>}
-      {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act}/>}
+      {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} onPreviewAnim={previewAnim}/>}
 
       {showBar&&<button className="cart-bar" onClick={()=>setTab('cart')}>
         <span className="cb-l"><span className="cb-n">{n}</span><span>{t("Savatga o'tish")}</span></span>

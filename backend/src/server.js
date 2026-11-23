@@ -22,13 +22,14 @@ const need=(...r)=>(req,res,next)=>r.includes(req.me.role)?next():res.status(403
 const STAFF=['operator','admin','superadmin'],ADM=['admin','superadmin'];
 app.use('/api',auth);
 app.get('/api/init',wrap(async(req,res)=>{const m=req.me,staff=STAFF.includes(m.role),wh=(await getSetting('warehouse')).enabled,d=await getSetting('delivery');
+ const anim=(await q("select value from settings where key='animation'")).rows[0]?.value||{preset:'none',duration:10};
  const banners=(await q('select id,image,title,subtitle,link from banners where active order by sort,id')).rows,
-  bundles=(await q(`select b.id,b.title,b.description,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts from bundles b where b.active order by b.id desc`)).rows,
+  bundles=(await q(`select b.id,b.title,b.description,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`)).rows,
   videos=(await q('select id,title,yt_id from videos where active order by id desc')).rows,
-  cats=(await q('select name,name_ru,image,section,sort from categories order by sort,id')).rows;
+  cats=(await q('select name,name_ru,image,section,sort,parent from categories order by sort,id')).rows;
  const ord=(await q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit 200`,staff?[]:[m.tg_id])).rows;
  res.json({role:m.role,workerDepartment:m.department,user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz'},warehouseEnabled:wh,
-  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,note:d.note||''}},
+  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,note:d.note||''},animation:anim},
   cats,categories:cats.map(c=>c.name),products:[],banners,bundles,videos,orders:ord,
   pendingProducts:ADM.includes(m.role)?(await q('select * from pending_changes order by id')).rows:[],
   roles:m.role==='superadmin'?(await q("select tg_id,name,role,department from users where role<>'user'")).rows:null})}));
@@ -50,6 +51,7 @@ app.post('/api/categories',need(...ADM),wrap(async(req,res)=>{const n=String(req
 app.put('/api/settings/delivery',need(...ADM),wrap(async(req,res)=>{const b=req.body,old=await getSetting('delivery');const v={...old,enabled:typeof b.enabled==='boolean'?b.enabled:old.enabled,minTotal:Math.max(0,Math.round(+b.minTotal||0)),note:String(b.note||'').slice(0,200)};await setSetting('delivery',v);await audit(req.me.tg_id,'settings.delivery','settings',{old,new:v});res.json(v)}));
 app.put('/api/settings/warehouse',need('superadmin'),wrap(async(req,res)=>{const v={enabled:!!req.body.enabled};await setSetting('warehouse',v);
  await audit(req.me.tg_id,'settings.warehouse','settings',v);res.json(v)}));
+app.put('/api/settings/animation',need('superadmin'),wrap(async(req,res)=>{const ok=['none','newyear','navruz','ramazon','autumn','confetti'];const preset=ok.includes(req.body.preset)?req.body.preset:'none';const duration=Math.max(3,Math.min(20,Math.round(+req.body.duration)||10));const v={preset,duration};await setSetting('animation',v);await audit(req.me.tg_id,'settings.animation','settings',v);res.json(v)}));
 app.put('/api/products/:id/stock',need('superadmin'),wrap(async(req,res)=>{if(!(await getSetting('warehouse')).enabled)return res.status(400).json({error:'Ombor tizimi yoqilmagan'});
  await q('update products set stock=$1 where id=$2',[req.body.stock==null?null:Number(req.body.stock),+req.params.id]);await audit(req.me.tg_id,'product.stock','product:'+req.params.id,req.body);res.json({success:true})}));
 app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,name,department}=req.body;
@@ -76,7 +78,7 @@ const KIND={banners:['image','title','subtitle','link'],videos:['title','yt_id']
 const PSEL='id,category,name,name_uz,description,min_grams,unit,price,image,age_min';
 app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
- if(cat){p.push(cat);w.push(`category=$${p.length}`)}
+ if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
  if((await getSetting('warehouse')).enabled)w.push('(stock is null or stock>0)');
  const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by name limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
@@ -104,10 +106,11 @@ app.get('/api/customers',need(...ADM),wrap(async(req,res)=>{const s='%'+String(r
  res.json((await q(`select u.tg_id,u.name,u.phone,u.role,max(o.created_at) last,count(o.id) filter(where o.status<>'cancelled')::int orders,coalesce(sum(o.total) filter(where o.status<>'cancelled'),0)::bigint spent from users u left join orders o on o.user_id=u.tg_id where u.phone is not null and (u.name ilike $1 or u.phone ilike $1) group by u.tg_id order by last desc nulls last limit 200`,[s])).rows)}));
 app.put('/api/content/banners/:id',need(...ADM),wrap(async(req,res)=>{const b=req.body;await q('update banners set title=$1,subtitle=$2,link=$3,image=coalesce(nullif($4,\'\'),image) where id=$5',[b.title||null,b.subtitle||null,b.link||null,b.image||'',+req.params.id]);await audit(req.me.tg_id,'content.banners.edit','banners:'+req.params.id,{title:b.title});res.json({success:true})}));
 app.post('/api/cats',need(...ADM),wrap(async(req,res)=>{const b=req.body,n=String(b.name||'').trim().slice(0,60);if(!n)return res.status(400).json({error:'Nom kerak'});
- if(b.old&&b.old!==n){await q('update categories set name=$1 where name=$2',[n,b.old]);await q('update products set category=$1 where category=$2',[n,b.old])}
- await q('insert into categories(name,name_ru,image,section,sort) values($1,$2,$3,$4,$5) on conflict(name) do update set name_ru=$2,image=coalesce($3,categories.image),section=$4,sort=$5',[n,b.name_ru||null,b.image||null,b.section||null,Math.round(+b.sort)||0]);
- await audit(req.me.tg_id,'category.save','category',{n});res.json({success:true})}));
-app.delete('/api/cats/:name',need(...ADM),wrap(async(req,res)=>{await q("update products set category='Boshqa' where category=$1",[req.params.name]);await q('delete from categories where name=$1',[req.params.name]);await audit(req.me.tg_id,'category.delete','category',{n:req.params.name});res.json({success:true})}));
+ const par=String(b.parent||'').trim().slice(0,60)||null;const cleanPar=par===n||par===b.old?null:par;
+ if(b.old&&b.old!==n){await q('update categories set name=$1 where name=$2',[n,b.old]);await q('update categories set parent=$1 where parent=$2',[n,b.old]);await q('update products set category=$1 where category=$2',[n,b.old])}
+ await q('insert into categories(name,name_ru,image,section,sort,parent) values($1,$2,$3,$4,$5,$6) on conflict(name) do update set name_ru=$2,image=coalesce($3,categories.image),section=$4,sort=$5,parent=$6',[n,b.name_ru||null,b.image||null,b.section||null,Math.round(+b.sort)||0,cleanPar]);
+ await audit(req.me.tg_id,'category.save','category',{n,parent:cleanPar});res.json({success:true})}));
+app.delete('/api/cats/:name',need(...ADM),wrap(async(req,res)=>{await q('update categories set parent=null where parent=$1',[req.params.name]);await q("update products set category='Boshqa' where category=$1",[req.params.name]);await q('delete from categories where name=$1',[req.params.name]);await audit(req.me.tg_id,'category.delete','category',{n:req.params.name});res.json({success:true})}));
 
 app.post('/api/orders/:id/substitute',need(...STAFF),wrap(async(req,res)=>res.json(await O.propose(req.me.tg_id,+req.params.id,+req.body.itemId,+req.body.productId))));
 app.post('/api/orders/:id/send-sub',need(...STAFF),wrap(async(req,res)=>res.json(await O.sendSub(req.me.tg_id,+req.params.id))));
