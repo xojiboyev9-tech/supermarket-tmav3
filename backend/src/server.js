@@ -24,6 +24,7 @@ const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and
 app.use('/api',auth);
 app.get('/api/init',wrap(async(req,res)=>{const m=req.me,staff=STAFF.includes(m.role),wh=(await getSetting('warehouse')).enabled,d=await getSetting('delivery');
  const anim=(await q("select value from settings where key='animation'")).rows[0]?.value||{preset:'none'};
+ const sup=(await q("select value from settings where key='support'")).rows[0]?.value||{username:'',phone:''};
  const banners=(await q('select id,image,title,subtitle,link from banners where active order by sort,id')).rows,
   bundles=(await q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`)).rows,
   videos=(await q('select id,title,yt_id from videos where active order by id desc')).rows,
@@ -32,7 +33,7 @@ app.get('/api/init',wrap(async(req,res)=>{const m=req.me,staff=STAFF.includes(m.
  const pendingCardsCount=ADM.includes(m.role)?(await q("select count(*)::int c from users where card_status='pending'")).rows[0].c:0;
  const ord=(await q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'min_grams',p.min_grams,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit 200`,staff?[]:[m.tg_id])).rows;
  res.json({role:m.role,workerDepartment:m.department,user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},warehouseEnabled:wh,saleCount,pendingCardsCount,
-  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,note:d.note||''},animation:anim},
+  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,note:d.note||''},animation:anim,support:sup},
   cats,categories:cats.map(c=>c.name),products:[],banners,bundles,videos,orders:ord,
   pendingProducts:ADM.includes(m.role)?(await q('select * from pending_changes order by id')).rows:[],
   roles:m.role==='superadmin'?(await q("select tg_id,name,role,department from users where role<>'user'")).rows:null})}));
@@ -84,6 +85,9 @@ app.post('/api/categories',need(...ADM),wrap(async(req,res)=>{const n=String(req
  if(req.body.action==='delete')await q('delete from categories where name=$1',[n]);else await q('insert into categories(name) values($1) on conflict do nothing',[n]);
  await audit(req.me.tg_id,'category.'+(req.body.action||'add'),'category',{n});res.json({success:true})}));
 app.put('/api/settings/delivery',need(...ADM),wrap(async(req,res)=>{const b=req.body,old=await getSetting('delivery');const v={...old,enabled:typeof b.enabled==='boolean'?b.enabled:old.enabled,minTotal:Math.max(0,Math.round(+b.minTotal||0)),note:String(b.note||'').slice(0,200)};await setSetting('delivery',v);await audit(req.me.tg_id,'settings.delivery','settings',{old,new:v});res.json(v)}));
+app.put('/api/settings/support',need(...ADM),wrap(async(req,res)=>{const raw=String(req.body.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim();
+ if(raw&&!/^[a-zA-Z0-9_]{3,32}$/.test(raw))return res.status(400).json({error:"Telegram username noto'g'ri (masalan: @tegen_support)"});
+ const phone=String(req.body.phone||'').trim().slice(0,30);const v={username:raw,phone};await setSetting('support',v);await audit(req.me.tg_id,'settings.support','settings',v);res.json(v)}));
 app.put('/api/settings/warehouse',need('superadmin'),wrap(async(req,res)=>{const v={enabled:!!req.body.enabled};await setSetting('warehouse',v);
  await audit(req.me.tg_id,'settings.warehouse','settings',v);res.json(v)}));
 app.put('/api/settings/animation',need('superadmin'),wrap(async(req,res)=>{const ok=['none','newyear','navruz','ramazon','autumn','confetti'];const preset=ok.includes(req.body.preset)?req.body.preset:'none';const v={preset};await setSetting('animation',v);await audit(req.me.tg_id,'settings.animation','settings',v);res.json(v)}));

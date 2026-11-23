@@ -66,7 +66,10 @@ const RU={
   "Nusxalandi ✅":"Скопировано ✅","Nusxalash":"Копировать","Kartalar":"Карты",
   "Aksiya narxi":"Цена по акции","Tugash vaqti":"Действует до","Tozalash":"Очистить",
   "Nabor nomi (o'zbekcha)":"Название набора (узбекский)","Название набора (русский)":"Название набора (русский)",
-  "Nabor tavsifi (o'zbekcha)":"Описание набора (узбекский)","Описание набора (русский)":"Описание набора (русский)"
+  "Nabor tavsifi (o'zbekcha)":"Описание набора (узбекский)","Описание набора (русский)":"Описание набора (русский)",
+  "Telegramda yozish":"Написать в Telegram","Qo'ng'iroq qilish":"Позвонить",
+  "Operator bilan bog'lanish":"Связаться с оператором",
+  "Telefon raqam (ixtiyoriy)":"Номер телефона (необязательно)"
 }
 
 const fmtPhone=p=>{const s=String(p||'').replace(/\D/g,'');return s.length===12&&s.startsWith('998')?`+998 ${s.slice(3,5)} ${s.slice(5,8)} ${s.slice(8,10)} ${s.slice(10)}`:(s?'+'+s:'')}
@@ -915,15 +918,23 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act}){
           <button className="btn s" onClick={addAddress}>+</button>
         </div>
       </div>}
-      <div className="menu-row" onClick={()=>setShowHelp(v=>!v)}>
-        <div className="menu-l"><span className="menu-ico">💬</span><div><b>{t("Qo'llab-quvvatlash")}</b><small>TEGEN Market</small></div></div>
-        <span className="m" style={{fontSize:18}}>{showHelp?'⌄':'›'}</span>
-      </div>
-      {showHelp&&<div style={{padding:'6px 0 10px'}}>
-        <div className="m" style={{marginBottom:8}}>{t("Operator bilan bog'lanish uchun botga xabar yozing")}</div>
-        <div className="m" style={{marginBottom:8}}>🚚 {dl.enabled?`${t("Yetkazish yoqilgan")}${dl.minTotal?` · ${t("Minimal")}: ${so(dl.minTotal)}`:''}`:t("Yetkazish o'chirilgan")}{dl.note?` · ${dl.note}`:''}</div>
-        {tg?.close&&<button className="btn s g" onClick={()=>tg.close()}>💬 {t("Bot chatiga o'tish")}</button>}
-      </div>}
+      {(()=>{const sup=d.settings.support||{},supUser=String(sup.username||'').replace(/^@+/,'').trim(),supPhone=String(sup.phone||'').trim();
+        const openTg=()=>{const url=`https://t.me/${supUser}`;if(tg?.openTelegramLink)tg.openTelegramLink(url);else window.open(url,'_blank','noopener,noreferrer')};
+        return <>
+          <div className="menu-row" onClick={()=>setShowHelp(v=>!v)}>
+            <div className="menu-l"><span className="menu-ico">💬</span><div><b>{t("Qo'llab-quvvatlash")}</b><small>{supUser?`@${supUser}`:'TEGEN Market'}</small></div></div>
+            <span className="m" style={{fontSize:18}}>{showHelp?'⌄':'›'}</span>
+          </div>
+          {showHelp&&<div style={{padding:'6px 0 10px'}}>
+            <div className="m" style={{marginBottom:8}}>{supUser?`${t("Operator bilan bog'lanish")}: @${supUser}`:t("Operator bilan bog'lanish uchun botga xabar yozing")}</div>
+            <div className="m" style={{marginBottom:8}}>🚚 {dl.enabled?`${t("Yetkazish yoqilgan")}${dl.minTotal?` · ${t("Minimal")}: ${so(dl.minTotal)}`:''}`:t("Yetkazish o'chirilgan")}{dl.note?` · ${dl.note}`:''}</div>
+            <div className="gap">
+              {supUser&&<button className="btn s" style={{flex:1}} onClick={openTg}>✈️ {t("Telegramda yozish")} (@{supUser})</button>}
+              {supPhone&&<a className="btn s g" style={{textDecoration:'none'}} href={`tel:${supPhone.replace(/[^\d+]/g,'')}`}>📞 {supPhone}</a>}
+              {!supUser&&tg?.close&&<button className="btn s g" onClick={()=>tg.close()}>💬 {t("Bot chatiga o'tish")}</button>}
+            </div>
+          </div>}
+        </>})()}
     </div>
   </>
 }
@@ -1342,13 +1353,23 @@ function Content({d,act}){
 function Settings({d,act,onPreviewAnim}){
   const {t}=useLang()
   const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',role:'worker',name:'',department:d.categories[0]})
+  const [sup,setSup]=useState(()=>({username:d.settings.support?.username||'',phone:d.settings.support?.phone||''}))
   const [preset,setPreset]=useState(()=>d.settings.animation?.preset||'none')
+  const cleanUser=String(sup.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim()
   return <><div className="card"><h2>{t("🚚 Yetkazib berish")}</h2>
     <label className="row"><span>Yoqilgan</span><input type="checkbox" checked={!!s.enabled} onChange={e=>setS({...s,enabled:e.target.checked})}/></label>
     <label className="m">Minimal buyurtma summasi (so'm)<input className="in" type="text" inputMode="numeric" value={s.minTotal||''} onChange={e=>setS({...s,minTotal:digits(e.target.value)})}/></label>
     <label className="m">Mijozga izoh<input className="in" value={s.note||''} onChange={e=>setS({...s,note:e.target.value})}/></label>
     <div className="m" style={{marginBottom:8}}>Mijoz manzilni yozadi, administrator telefon orqali bog'lanib tasdiqlaydi yoki rad etadi.</div>
     <button className="btn s" onClick={()=>act(()=>api('/api/settings/delivery','PUT',s),'Saqlandi')}>{t("Saqlash")}</button></div>
+    <div className="card">
+      <h2>💬 {t("Qo'llab-quvvatlash")}</h2>
+      <div className="m" style={{marginBottom:8}}>Mijoz profilidagi «Qo'llab-quvvatlash» bo'limida ko'rinadigan Telegram username.</div>
+      <label className="m">Telegram username<input className="in" placeholder="@tegen_support" value={sup.username} onChange={e=>setSup({...sup,username:e.target.value})}/></label>
+      {cleanUser&&<div className="m" style={{margin:'-4px 0 8px',color:'var(--b)',fontWeight:600}}>✈️ https://t.me/{cleanUser}</div>}
+      <label className="m">{t("Telefon raqam (ixtiyoriy)")}<input className="in" type="tel" placeholder="+998 90 123 45 67" value={sup.phone} onChange={e=>setSup({...sup,phone:e.target.value})}/></label>
+      <button className="btn s" onClick={()=>act(async()=>{const res=await api('/api/settings/support','PUT',sup);setSup(res)},'Saqlandi')}>{t("Saqlash")}</button>
+    </div>
     {d.role==='superadmin'&&<>
       <div className="card">
         <h2>✨ {t("Bayram animatsiyasi")}</h2>
@@ -1369,7 +1390,7 @@ function Settings({d,act,onPreviewAnim}){
     </>}</>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','settings.delivery':'Yetkazish sozlamasi','settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
 const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(product|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^content\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
@@ -1377,7 +1398,7 @@ function Audit(){
   const [a,setA]=useState([]),[g,setG]=useState('all'),[per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   useEffect(()=>{api(`/api/audit?from=${from}&to=${to}`).then(setA).catch(()=>{})},[from,to])
   const G=AG.find(x=>x[0]===g),list=G[2]?a.filter(x=>G[2].test(x.action)):a,col=x=>(AG.find(z=>z[2]&&z[2].test(x.action))||AG[0])[3]
-  const adet=x=>{const z=x.detail||{};if(z.card)return '💳 '+z.card;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
+  const adet=x=>{const z=x.detail||{};if(z.card)return '💳 '+z.card;if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     <div className="chips">{AG.map(([k,l])=><button key={k} className={'chip'+(g===k?' on':'')} onClick={()=>setG(k)}>{t(l)}</button>)}</div>
