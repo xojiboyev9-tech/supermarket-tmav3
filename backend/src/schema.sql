@@ -53,3 +53,5 @@ alter table users add column if not exists card_phone text;
 alter table users add column if not exists card_address text;
 alter table users add column if not exists card_applied_at timestamptz;
 alter table orders add column if not exists card_number text;
+insert into settings values('support','{"username":"","phone":""}') on conflict do nothing;
+
