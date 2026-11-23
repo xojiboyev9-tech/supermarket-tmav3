@@ -39,3 +39,4 @@ alter table order_items add column if not exists sub_price int;
 alter table order_items add column if not exists sub_unit text;
 alter table order_items add column if not exists sub_status text;
 alter table orders add column if not exists edit_state text;
+alter table users add column if not exists lang text default 'uz';

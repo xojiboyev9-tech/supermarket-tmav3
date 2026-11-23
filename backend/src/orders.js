@@ -120,7 +120,7 @@ exports.editDecide=async(actor,id,allow)=>{const o=(await q("select * from order
  await q('update orders set edit_state=$1 where id=$2',[allow?'allowed':null,id]);await audit(actor,allow?'order.edit_allowed':'order.edit_denied','order:'+id);N.editDecided(o,allow)};
 exports.editApply=async(userId,id,changes)=>{const o=(await q("select * from orders where id=$1 and user_id=$2 and edit_state='allowed'",[id,userId])).rows[0];if(!o)throw bad('Ruxsat yo\'q');
  for(const c of (Array.isArray(changes)?changes:[]).slice(0,60)){const i=(await q("select * from order_items where id=$1 and order_id=$2 and unit='piece'",[+c.itemId,id])).rows[0];if(!i)continue;
-  const n=Math.max(0,Math.min(100,Math.round(+c.qty)));if(!n)await q('delete from order_items where id=$1',[i.id]);else await q('update order_items set qty=$1,ordered_sum=unit_price*$1 where id=$2',[n,i.id])}
+  const n=Math.max(0,Math.min(500,Math.round(+c.qty)));if(!n)await q('delete from order_items where id=$1',[i.id]);else await q('update order_items set qty=$1,ordered_sum=unit_price*$1 where id=$2',[n,i.id])}
  await q('update orders set edit_state=null where id=$1',[id]);await recalc(id);await audit(userId,'order.edited','order:'+id);
  for(const s of []);};
 exports.bad=bad;
