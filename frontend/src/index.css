@@ -299,3 +299,12 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 }
 @media(prefers-reduced-motion:reduce){.festive{display:none}}
 
+/* Admin in-place inline editor */
+.inline-edit{margin-top:10px;padding:12px;border-radius:14px;background:#F8F9FB;border:1px solid var(--l)}
+.cat-row-wrap{border-bottom:1px solid #F3F4F6;padding:4px 0}
+.cat-row-wrap:last-child{border-bottom:0}
+.chips.sub{padding-top:0;margin-top:-4px}
+.chips.sub .chip{padding:5px 11px;font-size:12px;background:#F9FAFB}
+.chips.sub .chip.on{background:var(--t);color:#fff;border-color:var(--t);box-shadow:none}
+
+

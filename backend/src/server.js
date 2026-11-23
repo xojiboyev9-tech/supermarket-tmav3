@@ -82,8 +82,9 @@ app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').tr
  if((await getSetting('warehouse')).enabled)w.push('(stock is null or stock>0)');
  const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by name limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
-app.get('/api/admin/products',need('worker','operator',...ADM),wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),st=req.query.state,pg=Math.max(0,Math.min(2000,+req.query.page||0)),w=['true'],p=[];
+app.get('/api/admin/products',need('worker','operator',...ADM),wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),st=req.query.state,cat=String(req.query.cat||''),pg=Math.max(0,Math.min(2000,+req.query.page||0)),w=['true'],p=[];
  if(req.me.role==='worker'){p.push(req.me.department);w.push(`category=$${p.length}`)}
+ else if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
  if(st==='on')w.push('active');if(st==='off')w.push('not active');
  const r=(await q(`select ${PSEL},active,stock,barcode from products where ${w.join(' and ')} order by name limit 51 offset ${pg*50}`,p)).rows;

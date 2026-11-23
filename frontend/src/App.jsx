@@ -41,7 +41,7 @@ const RU={
   "Bayram animatsiyasi":"Праздничная анимация","O'chiq":"Выкл","Yangi yil":"Новый год",
   "Navro'z":"Навруз","Ramazon / Hayit":"Рамадан / Хаит","Kuz":"Осень",
   "Aksiya / Bayram":"Акция / Праздник","Sinab ko'rish":"Тест","Davomiyligi (soniya)":"Длительность (сек)",
-  "Nabor tavsifi (ixtiyoriy)":"Описание набора (необязательно)"
+  "Nabor tavsifi (ixtiyoriy)":"Описание набора (необязательно)","Qo'shish":"Добавить"
 }
 
 const ANIM_PRESETS=[
@@ -354,7 +354,7 @@ function Shop({d,cart,setCart,cat,setCat}){
         })}</div>
       </>}
 
-      <div className="sec-head"><h2 className="sec">{t("Kategoriyalar")}</h2></div>
+      <div className="sec-head"><h2 className="sec">{t("Katalog")}</h2></div>
       <div className="cat-grid">
         {tree.roots.map((c,i)=>{
           const subCount=tree.childrenOf(c.name).length
@@ -647,69 +647,188 @@ function AdminOrders({d,act}){
   </div>)}</>
 }
 
+function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
+  const {t,cn}=useLang()
+  const set=k=>e=>setF({...f,[k]:e.target.value})
+  return <>
+    <input className="in" placeholder="Название (русский)" value={f.name} onChange={set('name')}/>
+    <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name_uz||''} onChange={set('name_uz')}/>
+    <input className="in" inputMode="numeric" placeholder={t("Shtrixkod (ixtiyoriy)")} value={f.barcode||''} onChange={set('barcode')}/>
+    <div className="gap">
+      <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder={t("Narx (dona yoki kg uchun)")} value={f.price} onChange={e=>setF({...f,price:digits(e.target.value)})}/>
+      <select className="in" style={{flex:1}} value={f.unit} onChange={set('unit')}><option value="piece">Dona</option><option value="weight">Og'irlik (kg)</option></select>
+    </div>
+    {f.unit==='weight'&&<input className="in" type="text" inputMode="numeric" placeholder="Minimal gramm (masalan 250). Bo'sh = summa bilan sotiladi" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>}
+    <div className="gap">
+      {!dept&&<select className="in" style={{flex:2}} value={f.category} onChange={set('category')}>{tree.flat.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}</select>}
+      <select className="in" style={{flex:1}} value={f.age_min||0} onChange={set('age_min')}><option value="0">Yosh: yo'q</option><option value="16">16+</option><option value="18">18+</option><option value="20">20+</option><option value="21">21+</option></select>
+    </div>
+    <textarea className="in" rows={2} placeholder="Tavsif (ixtiyoriy)" value={f.description||''} onChange={set('description')}/>
+    <div className="gap" style={{alignItems:'center',marginBottom:8}}>
+      {f.image&&<img src={f.image} style={{width:52,height:52,borderRadius:12,objectFit:'cover'}}/>}
+      <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={onPick}/></label>
+    </div>
+    <div className="gap">
+      <button className="btn s" style={{flex:1}} onClick={onSave}>{saveLabel||t("Saqlash")}</button>
+      {onCancel&&<button className="btn s g" onClick={onCancel}>{t("Bekor")}</button>}
+    </div>
+  </>
+}
+
 function Products({d,act}){
   const {t,so,cn}=useLang()
   const tree=buildCatTree(d.cats)
-  const dept=d.role==='worker'?d.workerDepartment:null,e0={name:'',name_uz:'',description:'',barcode:'',price:'',unit:'piece',image:'',category:dept||d.categories[0],age_min:0,min_grams:0}
-  const [f,setF]=useState(e0),[q,setQ]=useState(''),[st,setSt]=useState('all'),[list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0),dq=useDebounced(q)
-  const set=k=>e=>setF({...f,[k]:e.target.value}),go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
-  const load=useCallback((n,reset)=>api(`/api/admin/products?q=${encodeURIComponent(dq)}&state=${st}&page=${n}`).then(r=>{setList(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)}).catch(()=>{}),[dq,st])
+  const dept=d.role==='worker'?d.workerDepartment:null
+  const e0={name:'',name_uz:'',description:'',barcode:'',price:'',unit:'piece',image:'',category:dept||d.categories[0],age_min:0,min_grams:0}
+  const [addOpen,setAddOpen]=useState(false),[f,setF]=useState(e0),[ed,setEd]=useState(null)
+  const [q,setQ]=useState(''),[st,setSt]=useState('all'),[cat,setCat]=useState('')
+  const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
+  const dq=useDebounced(q)
+  const go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
+
+  const load=useCallback((n,reset)=>api(`/api/admin/products?q=${encodeURIComponent(dq)}&state=${st}&cat=${encodeURIComponent(cat)}&page=${n}`).then(r=>{setList(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)}).catch(()=>{}),[dq,st,cat])
   useEffect(()=>{load(0,true)},[load,ver])
-  const save=()=>go(async()=>{await api(f.id?`/api/products/${f.id}`:'/api/products',f.id?'PUT':'POST',f);setF(e0)},dept?'Adminga tasdiqlash uchun yuborildi':'Saqlandi')
-  const pick=async e=>{const file=e.target.files[0];if(!file)return;try{const u=await upload(file);setF(x=>({...x,image:u}))}catch(er){alert(er.message)}}
-  return <>{d.pendingProducts.length>0&&<div className="card"><h2>⏳ Tasdiqlash kutilmoqda</h2>{d.pendingProducts.map(r=><div className="row" key={r.id}><span>{r.action}: {r.product.name} <span className="m">({r.worker_name})</span></span>
-    <span className="gap"><button className="btn s k" onClick={()=>go(()=>api('/api/changes/'+r.id,'POST',{approve:true}))}>✓</button><button className="btn s g" onClick={()=>go(()=>api('/api/changes/'+r.id,'POST',{approve:false}))}>✕</button></span></div>)}</div>}
-    <div className="card"><h2>{f.id?t('Tahrirlash'):t("Yangi mahsulot")}</h2><input className="in" placeholder="Название (русский)" value={f.name} onChange={set('name')}/><input className="in" placeholder="Nomi (o'zbekcha)" value={f.name_uz||''} onChange={set('name_uz')}/>
-      <input className="in" inputMode="numeric" placeholder={t("Shtrixkod (ixtiyoriy)")} value={f.barcode||''} onChange={set('barcode')}/>
-      <div className="gap"><input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder={t("Narx (dona yoki kg uchun)")} value={f.price} onChange={e=>setF({...f,price:digits(e.target.value)})}/><select className="in" style={{flex:1}} value={f.unit} onChange={set('unit')}><option value="piece">Dona</option><option value="weight">Og'irlik (kg)</option></select></div>
-      {f.unit==='weight'&&<input className="in" type="text" inputMode="numeric" placeholder="Minimal gramm (masalan 250). Bo'sh = summa bilan sotiladi" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>}
-      <div className="gap">{!dept&&<select className="in" style={{flex:2}} value={f.category} onChange={set('category')}>{tree.flat.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}</select>}
-        <select className="in" style={{flex:1}} value={f.age_min||0} onChange={set('age_min')}><option value="0">Yosh: yo'q</option><option value="16">16+</option><option value="18">18+</option><option value="20">20+</option><option value="21">21+</option></select></div>
-      <textarea className="in" rows={2} placeholder="Tavsif (ixtiyoriy)" value={f.description||''} onChange={set('description')}/>
-      <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:56,height:56,borderRadius:12,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={pick}/></label></div>
-      <div className="gap"><button className="btn" style={{flex:1}} onClick={save}>{t("Saqlash")}</button>{f.id&&<button className="btn g" style={{width:'auto'}} onClick={()=>setF(e0)}>{t("Bekor")}</button>}</div></div>
+
+  const pickFor=setter=>async e=>{const file=e.target.files[0];if(!file)return;try{const u=await upload(file);setter(x=>({...x,image:u}))}catch(er){alert(er.message)}}
+  const saveNew=()=>go(async()=>{await api('/api/products','POST',f);setF({...e0,category:cat||e0.category});setAddOpen(false)},dept?'Adminga tasdiqlash uchun yuborildi':'Saqlandi')
+  const saveEdit=()=>act(async()=>{
+    await api(`/api/products/${ed.id}`,'PUT',ed)
+    if(!dept){
+      const updated={...ed,price:Math.round(Number(ed.price)),min_grams:Math.round(Number(ed.min_grams))||0,age_min:Math.round(Number(ed.age_min))||0,barcode:String(ed.barcode||'').trim()||null,name_uz:String(ed.name_uz||'').trim()||null}
+      setList(prev=>prev.map(x=>x.id===ed.id?{...x,...updated}:x))
+    }
+    setEd(null)
+  },dept?'Adminga tasdiqlash uchun yuborildi':'Saqlandi')
+
+  const curCatObj=tree.byName.get(cat)
+  const activeRoot=curCatObj?.parent?curCatObj.parent:cat
+  const subChips=activeRoot?tree.childrenOf(activeRoot):[]
+
+  return <>
+    {d.pendingProducts.length>0&&<div className="card"><h2>⏳ Tasdiqlash kutilmoqda</h2>{d.pendingProducts.map(r=><div className="row" key={r.id}><span>{r.action}: {r.product.name} <span className="m">({r.worker_name})</span></span>
+      <span className="gap"><button className="btn s k" onClick={()=>go(()=>api('/api/changes/'+r.id,'POST',{approve:true}))}>✓</button><button className="btn s g" onClick={()=>go(()=>api('/api/changes/'+r.id,'POST',{approve:false}))}>✕</button></span></div>)}</div>}
+
+    <div className="card" style={{padding:addOpen?14:10}}>
+      <div className="row" style={{margin:0}}>
+        <h2 style={{margin:0}}>➕ {t("Yangi mahsulot")}</h2>
+        <button className="btn s g" onClick={()=>{if(!addOpen&&cat&&!dept)setF(x=>({...x,category:cat}));setAddOpen(o=>!o)}}>{addOpen?'✕':t("Qo'shish")}</button>
+      </div>
+      {addOpen&&<div style={{marginTop:10}}><ProductFields f={f} setF={setF} dept={dept} tree={tree} onPick={pickFor(setF)} onSave={saveNew} onCancel={()=>setAddOpen(false)}/></div>}
+    </div>
+
     <input className="search search-plain" placeholder="🔍 Nomi yoki shtrixkod" value={q} onChange={e=>setQ(e.target.value)}/>
     <div className="chips">{[['all','Hammasi'],['on','Faol'],['off','Nofaol']].map(([k,l])=><button key={k} className={'chip'+(st===k?' on':'')} onClick={()=>setSt(k)}>{t(l)}</button>)}</div>
-    {list.map(p=><div className="card" key={p.id} style={{opacity:p.active?1:.55}}><div className="row"><div><b>{p.name}</b>{p.name_uz&&<div className="m">{p.name_uz}</div>}{p.age_min>0&&<span className="age2">{p.age_min}+</span>}<div className="m">{p.category} · {so(p.price)}{p.unit==='weight'?' / kg':''}{p.barcode?` · #${p.barcode}`:''}</div></div>
-      <span className="gap" style={{alignItems:'center'}}>{!dept&&<label className="sw"><input type="checkbox" checked={p.active} onChange={e=>go(()=>api(`/api/products/${p.id}/active`,'PUT',{active:e.target.checked}))}/><i/></label>}<button className="btn s g" onClick={()=>{setF({...p,barcode:p.barcode||''});scrollTo({top:0,behavior:'smooth'})}}>✎</button>{dept&&<button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api('/api/products/'+p.id,'DELETE'),"So'rov yuborildi")}>🗑</button>}</span></div>
-      {d.warehouseEnabled&&d.role==='superadmin'&&<input className="in" type="number" placeholder="Ombor qoldig'i" defaultValue={p.stock??''} onBlur={e=>go(()=>api(`/api/products/${p.id}/stock`,'PUT',{stock:e.target.value===''?null:e.target.value}))}/>}</div>)}
-    {more&&<button className="btn g" onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}</>
+
+    {!dept&&<>
+      <div className="chips">
+        <button className={'chip'+(!cat?' on':'')} onClick={()=>setCat('')}>{t("Hammasi")}</button>
+        {tree.roots.map(c=><button key={c.name} className={'chip'+(activeRoot===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
+      </div>
+      {subChips.length>0&&<div className="chips sub">
+        <button className={'chip'+(cat===activeRoot?' on':'')} onClick={()=>setCat(activeRoot)}>{t("Hammasi")}</button>
+        {subChips.map(sc=><button key={sc.name} className={'chip'+(cat===sc.name?' on':'')} onClick={()=>setCat(sc.name)}>{cn(sc)}</button>)}
+      </div>}
+    </>}
+
+    {list.map(p=><div className="card" key={p.id} style={{opacity:p.active||ed?.id===p.id?1:.55}}>
+      <div className="row">
+        <div>
+          <b>{p.name}</b>
+          {p.name_uz&&<div className="m">{p.name_uz}</div>}
+          {p.age_min>0&&<span className="age2">{p.age_min}+</span>}
+          <div className="m">{p.category} · {so(p.price)}{p.unit==='weight'?' / kg':''}{p.barcode?` · #${p.barcode}`:''}</div>
+        </div>
+        <span className="gap" style={{alignItems:'center'}}>
+          {!dept&&<label className="sw"><input type="checkbox" checked={p.active} onChange={e=>{
+            const active=e.target.checked
+            act(async()=>{
+              await api(`/api/products/${p.id}/active`,'PUT',{active})
+              setList(prev=>prev.map(x=>x.id===p.id?{...x,active}:x).filter(x=>st==='all'||(st==='on'?x.active:!x.active)))
+            })
+          }}/><i/></label>}
+          <button className={'btn s '+(ed?.id===p.id?'':'g')} onClick={()=>setEd(cur=>cur?.id===p.id?null:{...p,barcode:p.barcode||'',price:String(p.price||''),min_grams:p.min_grams||''})}>{ed?.id===p.id?'✕':'✎'}</button>
+          {dept&&<button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api('/api/products/'+p.id,'DELETE'),"So'rov yuborildi")}>🗑</button>}
+        </span>
+      </div>
+      {ed?.id===p.id&&<div className="inline-edit">
+        <ProductFields f={ed} setF={setEd} dept={dept} tree={tree} onPick={pickFor(setEd)} onSave={saveEdit} onCancel={()=>setEd(null)}/>
+      </div>}
+      {d.warehouseEnabled&&d.role==='superadmin'&&<input className="in" style={{marginTop:8,marginBottom:0}} type="number" placeholder="Ombor qoldig'i" defaultValue={p.stock??''} onBlur={e=>{
+        const val=e.target.value===''?null:e.target.value
+        act(async()=>{await api(`/api/products/${p.id}/stock`,'PUT',{stock:val});setList(prev=>prev.map(x=>x.id===p.id?{...x,stock:val}:x))})
+      }}/>}
+    </div>)}
+    {!list.length&&<div className="center" style={{minHeight:140}}>{t("Hech narsa topilmadi")}</div>}
+    {more&&<button className="btn g" onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}
+  </>
 }
 
 function Banners({act}){
   const {t}=useLang()
-  const e0={image:'',title:'',subtitle:'',link:''},[list,setList]=useState([]),[ver,setVer]=useState(0),[f,setF]=useState(e0),[eid,setEid]=useState(null),go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
+  const e0={image:'',title:'',subtitle:'',link:''},[list,setList]=useState([]),[ver,setVer]=useState(0),[f,setF]=useState(e0),[ed,setEd]=useState(null),go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
   useEffect(()=>{api('/api/content').then(r=>setList(r.banners)).catch(()=>{})},[ver])
-  const pick=async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setF(o=>({...o,image:u}))}catch(er){alert(er.message)}}
-  return <><div className="card"><h2>🖼 {eid?'Bannerni tahrirlash':t("Bannerlar")}</h2><div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:96,height:48,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick}/></label></div>
+  const pick=setter=>async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setter(o=>({...o,image:u}))}catch(er){alert(er.message)}}
+  return <><div className="card"><h2>🖼 {t("Bannerlar")}</h2><div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:96,height:48,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label></div>
     <input className="in" placeholder="Sarlavha" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/><input className="in" placeholder="Qisqa izoh" value={f.subtitle} onChange={e=>setF({...f,subtitle:e.target.value})}/><input className="in" placeholder="Havola (ixtiyoriy, YouTube ham bo'ladi)" value={f.link} onChange={e=>setF({...f,link:e.target.value})}/>
-    <div className="gap"><button className="btn s" onClick={()=>go(async()=>{await api(eid?`/api/content/banners/${eid}`:'/api/content/banners',eid?'PUT':'POST',f);setF(e0);setEid(null)},'Saqlandi')}>{eid?'Saqlash':'+ Banner'}</button>{eid&&<button className="btn s g" onClick={()=>{setEid(null);setF(e0)}}>{t("Bekor")}</button>}</div></div>
+    <button className="btn s" onClick={()=>go(async()=>{await api('/api/content/banners','POST',f);setF(e0)},'Saqlandi')}>+ Banner</button></div>
     {list.map(x=><div className="card bcard" key={x.id}><div className="bimg" style={{backgroundImage:`url(${x.image})`}}><span className={'badge '+(x.active?'green':'gray')}>{x.active?t("Faol"):t("Nofaol")}</span></div><b style={{display:'block',marginTop:8}}>{x.title||'—'}</b><div className="m">{x.subtitle}</div>
-      <div className="row"><span className="gap" style={{alignItems:'center'}}><label className="sw"><input type="checkbox" checked={x.active} onChange={e=>go(()=>api(`/api/content/banners/${x.id}/active`,'PUT',{active:e.target.checked}))}/><i/></label><button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api(`/api/content/banners/${x.id}`,'DELETE'))}>{t("O'chirish")}</button></span><button className="btn s g" onClick={()=>{setEid(x.id);setF({image:x.image,title:x.title||'',subtitle:x.subtitle||'',link:x.link||''});scrollTo({top:0,behavior:'smooth'})}}>✎ Tahrirlash</button></div></div>)}</>
+      <div className="row"><span className="gap" style={{alignItems:'center'}}><label className="sw"><input type="checkbox" checked={x.active} onChange={e=>go(()=>api(`/api/content/banners/${x.id}/active`,'PUT',{active:e.target.checked}))}/><i/></label><button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api(`/api/content/banners/${x.id}`,'DELETE'))}>{t("O'chirish")}</button></span><button className={'btn s '+(ed?.id===x.id?'':'g')} onClick={()=>setEd(cur=>cur?.id===x.id?null:{id:x.id,image:x.image,title:x.title||'',subtitle:x.subtitle||'',link:x.link||''})}>{ed?.id===x.id?'✕':'✎ Tahrirlash'}</button></div>
+      {ed?.id===x.id&&<div className="inline-edit">
+        <div className="gap" style={{alignItems:'center',marginBottom:8}}>{ed.image&&<img src={ed.image} style={{width:96,height:48,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setEd)}/></label></div>
+        <input className="in" placeholder="Sarlavha" value={ed.title} onChange={e=>setEd({...ed,title:e.target.value})}/>
+        <input className="in" placeholder="Qisqa izoh" value={ed.subtitle} onChange={e=>setEd({...ed,subtitle:e.target.value})}/>
+        <input className="in" placeholder="Havola (ixtiyoriy)" value={ed.link} onChange={e=>setEd({...ed,link:e.target.value})}/>
+        <div className="gap"><button className="btn s" onClick={()=>go(async()=>{await api(`/api/content/banners/${ed.id}`,'PUT',ed);setEd(null)},'Saqlandi')}>{t("Saqlash")}</button><button className="btn s g" onClick={()=>setEd(null)}>{t("Bekor")}</button></div>
+      </div>}
+    </div>)}</>
 }
 
 function Cats({d,act}){
   const {t,cn}=useLang()
   const tree=buildCatTree(d.cats)
-  const e0={name:'',name_ru:'',image:'',sort:0,parent:''},[f,setF]=useState(e0),[old,setOld]=useState('')
-  const pick=async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setF(o=>({...o,image:u}))}catch(er){alert(er.message)}}
-  const parentOpts=tree.flat.filter(c=>c.name!==old&&c.parent!==old&&c.depth<2)
-  return <div className="card"><h2>🗂 {t("Kategoriyalar")}</h2>
+  const e0={name:'',name_ru:'',image:'',sort:0,parent:''},[f,setF]=useState(e0),[ed,setEd]=useState(null)
+  const pick=setter=>async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setter(o=>({...o,image:u}))}catch(er){alert(er.message)}}
+  const addParentOpts=tree.flat.filter(c=>c.depth<2)
+  return <div className="card"><h2>🗂 {t("Katalog")}</h2>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/>
     <input className="in" placeholder="Название (русский)" value={f.name_ru||''} onChange={e=>setF({...f,name_ru:e.target.value})}/>
     <select className="in" value={f.parent||''} onChange={e=>setF({...f,parent:e.target.value})}>
       <option value="">{t("Asosiy kategoriya (yo'q)")}</option>
-      {parentOpts.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}
+      {addParentOpts.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}
     </select>
-    <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick}/></label><input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
-    <div className="gap" style={{marginBottom:6}}>
-      <button className="btn s" onClick={()=>act(async()=>{await api('/api/cats','POST',{...f,old});setF(e0);setOld('')},'Saqlandi')}>{old?'Saqlash':'+ Kategoriya'}</button>
-      {old&&<button className="btn s g" onClick={()=>{setF(e0);setOld('')}}>{t("Bekor")}</button>}
-    </div>
-    {tree.flat.map(c=><div className="row" key={c.name} style={{paddingLeft:c.depth*16}}>
-      <span>{c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}{EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}</span>
-      <span className="gap"><button className="btn s g" onClick={()=>{setF({name:c.name,name_ru:c.name_ru||'',image:c.image||'',sort:c.sort||0,parent:c.parent||''});setOld(c.name);scrollTo({top:0,behavior:'smooth'})}}>✎</button><button className="btn s g" onClick={()=>confirm("O'chirilsinmi? Tovarlar 'Boshqa'ga o'tadi")&&act(()=>api('/api/cats/'+encodeURIComponent(c.name),'DELETE'))}>🗑</button></span>
-    </div>)}
+    <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label><input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
+    <button className="btn s" style={{marginBottom:8}} onClick={()=>act(async()=>{await api('/api/cats','POST',f);setF(e0)},'Saqlandi')}>+ Kategoriya</button>
+
+    {tree.flat.map(c=>{
+      const isEd=ed?.old===c.name
+      const edParentOpts=isEd?tree.flat.filter(x=>x.name!==c.name&&x.parent!==c.name&&x.depth<2):[]
+      return <div className="cat-row-wrap" key={c.name}>
+        <div className="row" style={{paddingLeft:c.depth*16}}>
+          <span>{c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}{EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}</span>
+          <span className="gap">
+            <button className={'btn s '+(isEd?'':'g')} onClick={()=>setEd(isEd?null:{old:c.name,name:c.name,name_ru:c.name_ru||'',image:c.image||'',sort:c.sort||0,parent:c.parent||''})}>{isEd?'✕':'✎'}</button>
+            <button className="btn s g" onClick={()=>confirm("O'chirilsinmi? Tovarlar 'Boshqa'ga o'tadi")&&act(()=>api('/api/cats/'+encodeURIComponent(c.name),'DELETE'))}>🗑</button>
+          </span>
+        </div>
+        {isEd&&<div className="inline-edit">
+          <input className="in" placeholder="Nomi (o'zbekcha)" value={ed.name} onChange={e=>setEd({...ed,name:e.target.value})}/>
+          <input className="in" placeholder="Название (русский)" value={ed.name_ru||''} onChange={e=>setEd({...ed,name_ru:e.target.value})}/>
+          <select className="in" value={ed.parent||''} onChange={e=>setEd({...ed,parent:e.target.value})}>
+            <option value="">{t("Asosiy kategoriya (yo'q)")}</option>
+            {edParentOpts.map(x=><option key={x.name} value={x.name}>{'\u00A0\u00A0'.repeat(x.depth)+(x.depth?'↳ ':'')+cn(x)}</option>)}
+          </select>
+          <div className="gap" style={{alignItems:'center',marginBottom:8}}>
+            {ed.image&&<img src={ed.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
+            <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setEd)}/></label>
+            <input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={ed.sort||''} onChange={e=>setEd({...ed,sort:digits(e.target.value)})}/>
+          </div>
+          <div className="gap">
+            <button className="btn s" onClick={()=>act(async()=>{await api('/api/cats','POST',ed);setEd(null)},'Saqlandi')}>{t("Saqlash")}</button>
+            <button className="btn s g" onClick={()=>setEd(null)}>{t("Bekor")}</button>
+          </div>
+        </div>}
+      </div>
+    })}
   </div>
 }
 
