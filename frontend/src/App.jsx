@@ -73,7 +73,10 @@ const RU={
   "Aksiya tugashigacha":"До конца акции","Davomiylik":"Длительность","Aniq sana":"Точная дата",
   "Kun":"Дни","Soat":"Часы","Daqiqa":"Минуты","Soniya":"Сек",
   "Bugun 23:59":"Сегодня 23:59","Ertaga 23:59":"Завтра 23:59","Vaqtsiz":"Без срока",
-  "Muddatsiz aksiya":"Акция без ограничения времени","O'tgan vaqt kiritilgan":"Указано прошедшее время"
+  "Muddatsiz aksiya":"Акция без ограничения времени","O'tgan vaqt kiritilgan":"Указано прошедшее время",
+  "Telegramdan raqamni ulashish":"Поделиться номером из Telegram",
+  "Bir marta kiritiladi — keyingi buyurtmalarda so'ralmaydi":"Вводится один раз — в следующих заказах запрашиваться не будет",
+  "Xabarlar":"Рассылка","Xabar yuborish":"Отправить рассылку"
 }
 
 const fmtPhone=p=>{const s=String(p||'').replace(/\D/g,'');return s.length===12&&s.startsWith('998')?`+998 ${s.slice(3,5)} ${s.slice(5,8)} ${s.slice(8,10)} ${s.slice(10)}`:(s?'+'+s:'')}
@@ -81,6 +84,18 @@ const fmtDt=s=>{if(!s)return '';const d=new Date(s);return d.toLocaleDateString(
 const loadAddrs=()=>{try{const a=JSON.parse(localStorage.getItem('tegen_addrs')||'[]');return Array.isArray(a)?a:[]}catch{return []}}
 const saveAddrs=a=>{try{localStorage.setItem('tegen_addrs',JSON.stringify(a.slice(0,10)))}catch{}}
 const copyText=(txt,say)=>{if(navigator.clipboard)navigator.clipboard.writeText(String(txt)).catch(()=>{});say&&say()}
+const shareTgPhone=(onGot,onReload)=>{
+  if(!tg?.requestContact)return false
+  try{
+    tg.requestContact((ok,ev)=>{
+      if(!ok)return
+      const p=ev?.responseUnsafe?.contact?.phone_number
+      if(p){const clean=String(p).startsWith('+')?String(p):'+'+String(p);onGot(clean);api('/api/user/phone','PUT',{phone:p}).then(()=>onReload&&onReload()).catch(()=>{})}
+      else if(onReload){setTimeout(onReload,900);setTimeout(onReload,2200)}
+    })
+    return true
+  }catch{return false}
+}
 
 const isSale=(p,now=Date.now())=>Boolean(p&&!p.bundle&&p.sale_price>0&&p.sale_price<p.price&&(!p.sale_until||new Date(p.sale_until).getTime()>now))
 const effPrice=(p,now=Date.now())=>isSale(p,now)?p.sale_price:p.price
@@ -645,16 +660,18 @@ function Catalog({d,go}){
   </>
 }
 
-function Cart({d,cart,setCart,act,done}){
+function Cart({d,cart,setCart,act,done,onReload}){
   const {t,so,pn}=useLang()
-  const [type,setType]=useState('pickup'),[addr,setAddr]=useState(''),[rec,setRec]=useState([]),[sh,setSh]=useState(null)
+  const [type,setType]=useState('pickup'),[addr,setAddr]=useState(''),[phone,setPhone]=useState(''),[rec,setRec]=useState([]),[sh,setSh]=useState(null)
   const lines=Object.entries(cart).map(([k,v])=>({k,p:v.p,v})),dl=d.settings.delivery
   const sub=lines.reduce((s,{p,v})=>s+lsum(p,v),0),age=Math.max(0,...lines.map(l=>l.p.age_min||0))
   const prods=lines.filter(l=>!l.p.bundle),cats=[...new Set(prods.map(l=>l.p.category))].join('|'),ex=prods.map(l=>l.p.id).join(',')
   useEffect(()=>{if(!cats){setRec([]);return}api(`/api/recommend?cats=${encodeURIComponent(cats)}&ex=${ex}`).then(setRec).catch(()=>{})},[cats,ex])
   const put=(p,v)=>setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})
   if(!lines.length)return <div className="center" style={{minHeight:300}}>{t("🛒 Savat bo'sh")}</div>
-  const minT=dl.minTotal||0,ok=type==='pickup'||(sub>=minT&&addr.trim().length>=5)
+  const needPhone=!d.user.phone
+  const phoneOk=!needPhone||phone.replace(/\D/g,'').length>=9
+  const minT=dl.minTotal||0,ok=phoneOk&&(type==='pickup'||(sub>=minT&&addr.trim().length>=5))
   return <>
     <h1>{t("Savat")}</h1>
     <div className="card">
@@ -694,6 +711,14 @@ function Cart({d,cart,setCart,act,done}){
       <textarea className="in" rows={2} placeholder={t("Manzil (ko'cha, uy, mo'ljal)")} value={addr} onChange={e=>setAddr(e.target.value)}/>
       <div className="m">📞 Buyurtmadan keyin administrator telefon orqali bog'lanib tasdiqlaydi.{minT>0&&` Minimal summa: ${so(minT)}.`} {dl.note}</div>
       {sub<minT&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>Yana {so(minT-sub)} kerak</div>}</div>}
+
+    {needPhone&&<div className="card" style={{background:'#FFF7F8',borderColor:'#FECDD3'}}>
+      <h2 style={{marginBottom:4}}>📱 {t("Telefon raqam")}</h2>
+      <div className="m" style={{marginBottom:8}}>{t("Bir marta kiritiladi — keyingi buyurtmalarda so'ralmaydi")}</div>
+      {tg?.requestContact&&<button type="button" className="btn s" style={{width:'100%',marginBottom:8}} onClick={()=>shareTgPhone(setPhone,onReload)}>📱 {t("Telegramdan raqamni ulashish")}</button>}
+      <input className="in" style={{marginBottom:0}} type="tel" placeholder="+998 90 123 45 67" value={phone} onChange={e=>setPhone(e.target.value)}/>
+    </div>}
+
     <div className="card"><div className="row"><span>{t("Mahsulotlar")}</span><b>{so(sub)}</b></div>
       <div className="row" style={{fontSize:17}}><b>{t("Jami")}</b><b style={{color:'#E11D48'}}>{so(sub)}</b></div>
       {d.user.cardStatus==='active'&&d.user.cardNumber&&<div className="m" style={{color:'#B91C1C',fontWeight:600}}>💳 {t("Diskont karta")}: {d.user.cardNumber} (2% {t("keshbek")})</div>}
@@ -701,7 +726,7 @@ function Cart({d,cart,setCart,act,done}){
       {age>0&&<div className="m">{t("🔞 Yosh tasdig'i botda so'raladi.")}</div>}</div>
     <button className="btn" disabled={!ok} onClick={()=>act(async()=>{
       if(type==='delivery'&&addr.trim().length>=5){const cur=loadAddrs();if(!cur.includes(addr.trim()))saveAddrs([addr.trim(),...cur])}
-      await api('/api/orders','POST',{items:lines.map(({p,v})=>p.bundle?{bundleId:p.id,qty:v.qty}:{productId:p.id,...(v.sum?{sum:v.sum}:v.grams?{grams:v.grams}:{qty:v.qty})}),type,address:addr});setCart({});done()
+      await api('/api/orders','POST',{items:lines.map(({p,v})=>p.bundle?{bundleId:p.id,qty:v.qty}:{productId:p.id,...(v.sum?{sum:v.sum}:v.grams?{grams:v.grams}:{qty:v.qty})}),type,address:addr,...(needPhone?{phone}:{})});setCart({});done()
     },'Buyurtma yuborildi ✅')}>{t("Buyurtma berish")}</button>
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}}/>}
   </>
@@ -730,13 +755,14 @@ function Orders({d,act}){
   </div>)}</>
 }
 
-function DiscountCardSection({d,act,say}){
+function DiscountCardSection({d,act,say,onReload}){
   const {t}=useLang()
   const u=d.user
   const [open,setOpen]=useState(false)
   const [fullName,setFullName]=useState(u.cardFullName||u.name||'')
   const [phone,setPhone]=useState(u.cardPhone||(u.phone?'+'+u.phone:''))
   const [address,setAddress]=useState(u.cardAddress||loadAddrs()[0]||'')
+  useEffect(()=>{if(u.phone&&!phone)setPhone('+'+u.phone)},[u.phone])
 
   if(u.cardStatus==='active'&&u.cardNumber){
     return <div className="dcard">
@@ -772,6 +798,7 @@ function DiscountCardSection({d,act,say}){
     {!open?<button className="dcard-copy" style={{width:'100%',padding:'10px 14px',fontSize:13.5,background:'#fff',color:'var(--b7)'}} onClick={()=>setOpen(true)}>+ {t("Diskont kartaga ariza berish")}</button>
     :<div style={{background:'#fff',color:'var(--t)',borderRadius:16,padding:12}}>
       <input className="in" placeholder={t("Ism va familiya")} value={fullName} onChange={e=>setFullName(e.target.value)}/>
+      {!u.phone&&tg?.requestContact&&<button type="button" className="btn s g" style={{width:'100%',marginBottom:8}} onClick={()=>shareTgPhone(setPhone,onReload)}>📱 {t("Telegramdan raqamni ulashish")}</button>}
       <input className="in" type="tel" placeholder={t("Telefon raqam")} value={phone} onChange={e=>setPhone(e.target.value)}/>
       <input className="in" placeholder={t("Yashash manzili")} value={address} onChange={e=>setAddress(e.target.value)}/>
       <div className="gap">
@@ -782,7 +809,7 @@ function DiscountCardSection({d,act,say}){
   </div>
 }
 
-function Profile({d,go,onToggleLang,cart,setCart,say,act}){
+function Profile({d,go,onToggleLang,cart,setCart,say,act,onReload}){
   const {lang,t,so,pn}=useLang()
   const [hf,setHf]=useState('all'),[openId,setOpenId]=useState(null),[showAddrs,setShowAddrs]=useState(false),[showHelp,setShowHelp]=useState(false)
   const [addrs,setAddrs]=useState(()=>loadAddrs()),[newAddr,setNewAddr]=useState('')
@@ -862,7 +889,7 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act}){
       </div>
     </div>
 
-    <DiscountCardSection d={d} act={act} say={say}/>
+    <DiscountCardSection d={d} act={act} say={say} onReload={onReload}/>
 
     {staff&&<button className="btn" style={{marginBottom:12}} onClick={()=>go('admin')}>⚙️ {t("Boshqaruv")}</button>}
 
@@ -1514,9 +1541,110 @@ function Content({d,act}){
       {c.videos.map(x=>row('videos',x,x.title||x.yt_id))}</div></>
 }
 
+function AdminBroadcast({act,say}){
+  const {t}=useLang()
+  const [st,setSt]=useState({counts:{all:0,uz:0,ru:0},history:[]})
+  const [kind,setKind]=useState('photo')
+  const [target,setTarget]=useState('all')
+  const [text,setText]=useState('')
+  const [mediaUrl,setMediaUrl]=useState('')
+  const [withBtn,setWithBtn]=useState(true)
+  const [busy,setBusy]=useState(false)
+
+  const load=useCallback(()=>api('/api/broadcast').then(setSt).catch(()=>{}),[])
+  useEffect(()=>{load()},[load])
+  useEffect(()=>{
+    if(!st.history.some(x=>x.status==='sending'))return
+    const h=setInterval(load,4000)
+    return()=>clearInterval(h)
+  },[st.history,load])
+
+  const pickImg=async e=>{
+    const f=e.target.files[0];if(!f)return
+    setBusy(true)
+    try{setMediaUrl(await upload(f))}catch(er){say(er.message)}
+    setBusy(false)
+  }
+
+  const targetCount=target==='uz'?st.counts.uz:target==='ru'?st.counts.ru:st.counts.all
+  const canSend=!busy&&targetCount>0&&(kind==='text'?text.trim().length>0:mediaUrl.trim().length>0)
+
+  const sendNow=()=>{
+    if(!confirm(`${targetCount} ta foydalanuvchiga xabar yuborilsinmi?`))return
+    act(async()=>{
+      const r=await api('/api/broadcast','POST',{kind,target,text,mediaUrl,withBtn})
+      setText('');setMediaUrl('')
+      await load()
+      say(`🚀 Yuborish boshlandi (${r.total} ta)`)
+    })
+  }
+
+  return <>
+    <div className="card" style={{background:'linear-gradient(135deg,#FFF1F2 0%,#FFE4E6 100%)',borderColor:'#FECDD3'}}>
+      <h2 style={{color:'var(--b7)',marginBottom:4}}>🎬 Telegram bot orqali Video / Rasm yuborish</h2>
+      <div className="m" style={{color:'var(--t2)',marginBottom:8}}>
+        Katta hajmli HD video, GIF yoki formatlangan yangiliklarni to'g'ridan-to'g'ri bot chatida <b>/broadcast</b> buyrug'i (yoki bot menyusidagi <b>📣 Yangilik / Xabar yuborish</b> tugmasi) orqali yuborish eng qulay va cheklovsiz!
+      </div>
+      {tg?.close&&<button className="btn s" onClick={()=>tg.close()}>✈️ Bot chatiga o'tish (/broadcast)</button>}
+    </div>
+
+    <div className="prof-stats" style={{marginTop:0,marginBottom:12,paddingTop:0,borderTop:0}}>
+      <div className="pstat hi"><span>Jami foydalanuvchi</span><b>{st.counts.all}</b></div>
+      <div className="pstat"><span>🇺🇿 O'zbekcha</span><b>{st.counts.uz}</b></div>
+      <div className="pstat"><span>🇷🇺 Ruscha</span><b>{st.counts.ru}</b></div>
+    </div>
+
+    <div className="card">
+      <h2>📣 {t("Xabar yuborish")}</h2>
+      <div className="chips">
+        {[['all',`👥 Hammasi (${st.counts.all})`],['uz',`🇺🇿 O'zbekcha (${st.counts.uz})`],['ru',`🇷🇺 Ruscha (${st.counts.ru})`]].map(([k,l])=>
+          <button key={k} type="button" className={'chip'+(target===k?' on':'')} onClick={()=>setTarget(k)}>{l}</button>)}
+      </div>
+      <div className="seg" style={{marginBottom:10}}>
+        {[['photo','🖼 Rasm'],['text','📝 Matn'],['video','🎬 Video URL']].map(([k,l])=>
+          <button key={k} type="button" className={kind===k?'on':''} onClick={()=>{setKind(k);setMediaUrl('')}}>{l}</button>)}
+      </div>
+
+      {kind==='photo'&&<div className="gap" style={{alignItems:'center',marginBottom:8}}>
+        {mediaUrl&&<img src={mediaUrl} style={{width:64,height:64,borderRadius:12,objectFit:'cover'}}/>}
+        <label className="btn s g" style={{cursor:'pointer'}}>📷 {busy?'Yuklanmoqda…':'Rasm tanlash'}<input type="file" accept="image/*" hidden onChange={pickImg}/></label>
+        {mediaUrl&&<button type="button" className="btn s g" onClick={()=>setMediaUrl('')}>✕</button>}
+      </div>}
+
+      {kind==='video'&&<>
+        <input className="in" placeholder="Video havolasi (https://...mp4)" value={mediaUrl} onChange={e=>setMediaUrl(e.target.value)}/>
+        <div className="m" style={{margin:'-4px 0 8px'}}>💡 Telefon galereyasidan to'g'ridan-to'g'ri video yuborish uchun bot chatida <b>/broadcast</b> yozing.</div>
+      </>}
+
+      <textarea className="in" rows={4} placeholder={kind==='text'?'Yangilik yoki e\'lon matnini yozing…':'Rasm/video ostidagi izoh (ixtiyoriy)…'} value={text} onChange={e=>setText(e.target.value)}/>
+      <label className="row" style={{marginBottom:10}}>
+        <span>🛒 «Do'konni ochish» tugmasini qo'shish</span>
+        <input type="checkbox" checked={withBtn} onChange={e=>setWithBtn(e.target.checked)}/>
+      </label>
+      <button className="btn" disabled={!canSend} onClick={sendNow}>📣 {t("Xabar yuborish")} ({targetCount} ta)</button>
+    </div>
+
+    <div className="card">
+      <h2>📜 Yuborilgan xabarlar · {st.history.length}</h2>
+      {st.history.map(b=><div className="alog" key={b.id}>
+        <i style={{background:b.status==='done'?'#10B981':'#F59E0B'}}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="row" style={{margin:0}}>
+            <b>{b.kind==='video'?'🎬 Video':b.kind==='photo'?'🖼 Rasm':'📝 Matn'} · #{b.id}</b>
+            <span className={'badge '+(b.status==='done'?'green':'amber')}>{b.status==='done'?`✅ ${b.sent}/${b.total}`:`⏳ ${b.sent}/${b.total}`}</span>
+          </div>
+          {b.text&&<div className="m" style={{marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.text}</div>}
+          <div className="m">{b.sender_name} · {b.target==='uz'?'🇺🇿 UZ':b.target==='ru'?'🇷🇺 RU':'👥 Hammasi'}{b.failed>0?` · 🚫 ${b.failed}`:''} · {fmtDt(b.created_at)}</div>
+        </div>
+      </div>)}
+      {!st.history.length&&<div className="m">Hali xabar yuborilmagan</div>}
+    </div>
+  </>
+}
+
 function Settings({d,act,onPreviewAnim}){
   const {t}=useLang()
-  const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',role:'worker',name:'',department:d.categories[0]})
+  const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',role:'worker',name:'',department:d.categories[0],canBroadcast:false})
   const [sup,setSup]=useState(()=>({username:d.settings.support?.username||'',phone:d.settings.support?.phone||''}))
   const [preset,setPreset]=useState(()=>d.settings.animation?.preset||'none')
   const cleanUser=String(sup.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim()
@@ -1546,23 +1674,32 @@ function Settings({d,act,onPreviewAnim}){
         <button className="btn s" onClick={()=>act(async()=>{const res=await api('/api/settings/animation','PUT',{preset});setPreset(res.preset);onPreviewAnim(res.preset)},'Saqlandi')}>{t("Saqlash")}</button>
       </div>
       <div className="card"><h2>📦 Ombor tizimi</h2><label className="row"><span>Yoqilgan (faqat Super Admin)</span><input type="checkbox" checked={d.warehouseEnabled} onChange={e=>act(()=>api('/api/settings/warehouse','PUT',{enabled:e.target.checked}),'Saqlandi')}/></label></div>
-      <div className="card"><h2>👥 Rollar</h2>{(d.roles||[]).map(x=><div className="row" key={x.tg_id}><span className="row-txt">{x.name||x.tg_id} <span className="m">{x.role}{x.department?' · '+x.department:''}</span></span>{x.role!=='superadmin'&&<span className="row-acts"><button className="btn s g" onClick={()=>act(()=>api('/api/roles','POST',{targetId:x.tg_id,role:'user'}))}>Olib tashlash</button></span>}</div>)}
+      <div className="card"><h2>👥 Rollar</h2>
+        <div className="m" style={{marginBottom:8}}>Super Admin va «📣 Xabar» yoqilgan adminlar botda barcha foydalanuvchilarga yangilik/rasm/video yubora oladi.</div>
+        {(d.roles||[]).map(x=><div className="row" key={x.tg_id}>
+          <span className="row-txt">{x.name||x.tg_id} <span className="m">{x.role}{x.department?' · '+x.department:''}{x.role==='superadmin'||x.can_broadcast?' · 📣':''}</span></span>
+          {x.role!=='superadmin'&&<span className="row-acts">
+            {x.role==='admin'&&<button type="button" className={'btn s '+(x.can_broadcast?'k':'g')} title="Xabar yuborish ruxsati" onClick={()=>act(()=>api(`/api/roles/${x.tg_id}/broadcast`,'PUT',{canBroadcast:!x.can_broadcast}),x.can_broadcast?'Xabar ruxsati olindi':'Xabar ruxsati berildi ✅')}>📣</button>}
+            <button className="btn s g" onClick={()=>act(()=>api('/api/roles','POST',{targetId:x.tg_id,role:'user'}))}>Olib tashlash</button>
+          </span>}
+        </div>)}
         <input className="in" placeholder="Telegram ID" value={u.targetId} onChange={e=>setU({...u,targetId:e.target.value})}/><input className="in" placeholder="Ism" value={u.name} onChange={e=>setU({...u,name:e.target.value})}/>
         <div className="gap"><select className="in" style={{flex:1}} value={u.role} onChange={e=>setU({...u,role:e.target.value})}><option value="worker">Bo'lim ishchisi</option><option value="operator">Operator</option><option value="admin">Admin</option></select>
         {u.role==='worker'&&<select className="in" style={{flex:1}} value={u.department} onChange={e=>setU({...u,department:e.target.value})}>{d.categories.map(c=><option key={c}>{c}</option>)}</select>}</div>
-        <button className="btn" onClick={()=>act(()=>api('/api/roles','POST',u),'Saqlandi')}>Qo'shish</button></div>
+        {u.role==='admin'&&<label className="row" style={{marginBottom:8}}><span>📣 Xabar yuborish ruxsati (Yangiliklar)</span><input type="checkbox" checked={!!u.canBroadcast} onChange={e=>setU({...u,canBroadcast:e.target.checked})}/></label>}
+        <button className="btn" onClick={()=>act(async()=>{await api('/api/roles','POST',u);setU({targetId:'',role:'worker',name:'',department:d.categories[0],canBroadcast:false})},'Saqlandi')}>Qo'shish</button></div>
     </>}</>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
-const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(product|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^content\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(product|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
   const {t,so}=useLang()
   const [a,setA]=useState([]),[g,setG]=useState('all'),[per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   useEffect(()=>{api(`/api/audit?from=${from}&to=${to}`).then(setA).catch(()=>{})},[from,to])
   const G=AG.find(x=>x[0]===g),list=G[2]?a.filter(x=>G[2].test(x.action)):a,col=x=>(AG.find(z=>z[2]&&z[2].test(x.action))||AG[0])[3]
-  const adet=x=>{const z=x.detail||{};if(z.card)return '💳 '+z.card;if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
+  const adet=x=>{const z=x.detail||{};if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     <div className="chips">{AG.map(([k,l])=><button key={k} className={'chip'+(g===k?' on':'')} onClick={()=>setG(k)}>{t(l)}</button>)}</div>
@@ -1572,10 +1709,11 @@ function Audit(){
 
 function Admin({d,act,say,onPreviewAnim}){
   const {t}=useLang()
-  const isW=d.role==='worker',tabs=isW?[['p','Tovarlar']]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p','Tovarlar'],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],['m','Mijozlar'],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
+  const isW=d.role==='worker',canBc=d.role==='superadmin'||!!d.user.canBroadcast
+  const tabs=isW?[['p','Tovarlar']]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p','Tovarlar'],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],...(canBc?[['b','Xabarlar']]:[]),['m','Mijozlar'],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
   const [tb,setT]=useState(tabs[0][0])
   return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>setT(k)}>{k==='k'?l:t(l)}</button>)}</div>
-    {tb==='d'&&<Dash/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say}/>}{tb==='p'&&<Products d={d} act={act}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='m'&&<Customers/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
+    {tb==='d'&&<Dash/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say}/>}{tb==='p'&&<Products d={d} act={act}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
 export default function App(){
@@ -1608,7 +1746,6 @@ export default function App(){
 
   if(err)return <div className="center">⚠️ {err}<br/>Ilovani Telegram bot orqali oching.</div>
   if(!d)return <div className="center">{t("Yuklanmoqda…")}</div>
-  if(!d.user.phone)return <div className="center">📱 {lang==='ru'?'Сначала нажмите /start в боте, выберите язык и отправьте номер телефона.':'Avval botda /start bosib tilni tanlang va telefon raqamingizni yuboring.'}</div>
 
   const entries=Object.values(cart)
   const n=entries.length
@@ -1631,9 +1768,9 @@ export default function App(){
       {tab==='shop'&&<Shop d={d} cart={cart} setCart={setCart} cat={cat} setCat={setCat}/>}
       {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}}/>}
       {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart}/>}
-      {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')}/>}
+      {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')} onReload={load}/>}
       {tab==='orders'&&<Orders d={d} act={act}/>}
-      {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act}/>}
+      {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act} onReload={load}/>}
       {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} say={say} onPreviewAnim={p=>setAnimOverride(p)}/>}
 
       {showBar&&<button className="cart-bar" onClick={()=>setTab('cart')}>

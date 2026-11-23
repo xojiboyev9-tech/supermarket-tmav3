@@ -1,7 +1,7 @@
 // JOYI: backend/src/server.js  (GitHub'da shu yo'l bilan yarating)
 require('dotenv').config();
 const express=require('express'),helmet=require('helmet'),cors=require('cors'),rate=require('express-rate-limit'),crypto=require('crypto');
-const {q,audit,getSetting,setSetting}=require('./db');const O=require('./orders');const {bot,notifyCardApplied,notifyCardApproved,notifyCardRejected}=require('./bot');
+const {q,audit,getSetting,setSetting}=require('./db');const O=require('./orders');const {bot,notifyCardApplied,notifyCardApproved,notifyCardRejected,runBroadcast}=require('./bot');
 process.on('unhandledRejection',e=>console.error('unhandled',e));
 const app=express();app.set('trust proxy',1);app.use(helmet({contentSecurityPolicy:false,crossOriginEmbedderPolicy:false,frameguard:false,referrerPolicy:{policy:'strict-origin-when-cross-origin'}}));
 app.use(cors({origin:(process.env.WEBAPP_URL||'').replace(/\/+$/,'')}));app.use(express.json({limit:'1mb'}));
@@ -19,6 +19,7 @@ const auth=async(req,res,next)=>{try{
  req.me=(await q("insert into users(tg_id,name) values($1,$2) on conflict(tg_id) do update set name=excluded.name returning *",[u.id,name])).rows[0];next();
 }catch{res.status(401).json({error:'Avtorizatsiya xatosi'})}};
 const need=(...r)=>(req,res,next)=>r.includes(req.me.role)?next():res.status(403).json({error:"Ruxsat yo'q"});
+const needBroadcast=(req,res,next)=>(req.me.role==='superadmin'||(req.me.role==='admin'&&req.me.can_broadcast))?next():res.status(403).json({error:"Xabar yuborish ruxsati yo'q"});
 const STAFF=['operator','admin','superadmin'],ADM=['admin','superadmin'];
 const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and (sale_until is null or sale_until>now())';
 app.use('/api',auth);
@@ -32,17 +33,19 @@ app.get('/api/init',wrap(async(req,res)=>{const m=req.me,staff=STAFF.includes(m.
  const saleCount=(await q(`select count(*)::int c from products where active and ${SALE_SQL}`)).rows[0].c;
  const pendingCardsCount=ADM.includes(m.role)?(await q("select count(*)::int c from users where card_status='pending'")).rows[0].c:0;
  const ord=(await q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'min_grams',p.min_grams,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit 200`,staff?[]:[m.tg_id])).rows;
- res.json({role:m.role,workerDepartment:m.department,user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},warehouseEnabled:wh,saleCount,pendingCardsCount,
+ res.json({role:m.role,workerDepartment:m.department,user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',canBroadcast:m.role==='superadmin'||(m.role==='admin'&&!!m.can_broadcast),cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},warehouseEnabled:wh,saleCount,pendingCardsCount,
   settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,note:d.note||''},animation:anim,support:sup},
   cats,categories:cats.map(c=>c.name),products:[],banners,bundles,videos,orders:ord,
   pendingProducts:ADM.includes(m.role)?(await q('select * from pending_changes order by id')).rows:[],
-  roles:m.role==='superadmin'?(await q("select tg_id,name,role,department from users where role<>'user'")).rows:null})}));
+  roles:m.role==='superadmin'?(await q("select tg_id,name,role,department,coalesce(can_broadcast,false) can_broadcast from users where role<>'user'")).rows:null})}));
 app.put('/api/user/lang',wrap(async(req,res)=>{const lang=req.body.lang==='ru'?'ru':'uz';await q('update users set lang=$1 where tg_id=$2',[lang,req.me.tg_id]);res.json({lang})}));
+app.put('/api/user/phone',wrap(async(req,res)=>{const ph=O.normPhone(req.body.phone);if(!ph)return res.status(400).json({error:"Telefon raqam noto'g'ri"});await q('update users set phone=$1 where tg_id=$2',[ph,req.me.tg_id]);res.json({phone:ph})}));
 app.post('/api/card/apply',wrap(async(req,res)=>{
  if(req.me.card_status==='active'&&req.me.card_number)return res.status(400).json({error:'Sizda diskont karta allaqachon mavjud'});
  const fullName=String(req.body.fullName||'').trim().slice(0,120),phone=String(req.body.phone||req.me.phone||'').trim().slice(0,40),address=String(req.body.address||'').trim().slice(0,250);
- if(fullName.length<3||phone.length<7||address.length<5)return res.status(400).json({error:"Ism-familiya, telefon va yashash manzilini to'liq kiriting"});
- await q("update users set card_status='pending',card_full_name=$1,card_phone=$2,card_address=$3,card_applied_at=now() where tg_id=$4",[fullName,phone,address,req.me.tg_id]);
+ const phNorm=O.normPhone(phone);
+ if(fullName.length<3||!phNorm||address.length<5)return res.status(400).json({error:"Ism-familiya, telefon va yashash manzilini to'liq kiriting"});
+ await q("update users set card_status='pending',card_full_name=$1,card_phone=$2,card_address=$3,card_applied_at=now(),phone=coalesce(phone,$5) where tg_id=$4",[fullName,phone,address,req.me.tg_id,phNorm]);
  await audit(req.me.tg_id,'card.apply','user:'+req.me.tg_id,{fullName,phone});
  notifyCardApplied({tg_id:req.me.tg_id,fullName,phone,address});
  res.json({success:true})}));
@@ -93,10 +96,29 @@ app.put('/api/settings/warehouse',need('superadmin'),wrap(async(req,res)=>{const
 app.put('/api/settings/animation',need('superadmin'),wrap(async(req,res)=>{const ok=['none','newyear','navruz','ramazon','autumn','confetti'];const preset=ok.includes(req.body.preset)?req.body.preset:'none';const v={preset};await setSetting('animation',v);await audit(req.me.tg_id,'settings.animation','settings',v);res.json(v)}));
 app.put('/api/products/:id/stock',need('superadmin'),wrap(async(req,res)=>{if(!(await getSetting('warehouse')).enabled)return res.status(400).json({error:'Ombor tizimi yoqilmagan'});
  await q('update products set stock=$1 where id=$2',[req.body.stock==null?null:Number(req.body.stock),+req.params.id]);await audit(req.me.tg_id,'product.stock','product:'+req.params.id,req.body);res.json({success:true})}));
-app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,name,department}=req.body;
+app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,name,department,canBroadcast}=req.body;
  if(!['user','worker','operator','admin'].includes(role)||!Number(targetId))return res.status(400).json({error:"Noto'g'ri"});
- await q("insert into users(tg_id,name,role,department) values($1,$2,$3,$4) on conflict(tg_id) do update set role=$3,department=$4,name=coalesce(nullif($2,''),users.name)",[targetId,name||'',role,role==='worker'?department:null]);
- await audit(req.me.tg_id,'role.set','user:'+targetId,{role,department});res.json({success:true})}));
+ const cb=role==='admin'?!!canBroadcast:false;
+ await q("insert into users(tg_id,name,role,department,can_broadcast) values($1,$2,$3,$4,$5) on conflict(tg_id) do update set role=$3,department=$4,can_broadcast=$5,name=coalesce(nullif($2,''),users.name)",[targetId,name||'',role,role==='worker'?department:null,cb]);
+ await audit(req.me.tg_id,'role.set','user:'+targetId,{role,department,canBroadcast:cb});res.json({success:true})}));
+app.put('/api/roles/:tgId/broadcast',need('superadmin'),wrap(async(req,res)=>{const tid=req.params.tgId,cb=!!req.body.canBroadcast;
+ await q("update users set can_broadcast=$1 where tg_id=$2 and role='admin'",[cb,tid]);
+ await audit(req.me.tg_id,'role.broadcast','user:'+tid,{canBroadcast:cb});res.json({success:true})}));
+app.get('/api/broadcast',needBroadcast,wrap(async(req,res)=>{
+ const counts=(await q("select count(*)::int all_c,count(*) filter(where coalesce(lang,'uz')<>'ru')::int uz_c,count(*) filter(where lang='ru')::int ru_c from users")).rows[0];
+ const history=(await q('select * from broadcasts order by id desc limit 30')).rows;
+ res.json({counts:{all:counts.all_c,uz:counts.uz_c,ru:counts.ru_c},history})}));
+app.post('/api/broadcast',needBroadcast,wrap(async(req,res)=>{
+ const kind=['text','photo','video'].includes(req.body.kind)?req.body.kind:'text';
+ const target=['all','uz','ru'].includes(req.body.target)?req.body.target:'all';
+ const text=String(req.body.text||'').trim().slice(0,kind==='text'?3800:1000);
+ const mediaUrl=String(req.body.mediaUrl||'').trim().slice(0,500);
+ const withBtn=req.body.withBtn!==false;
+ if(kind==='text'&&!text)return res.status(400).json({error:'Xabar matnini kiriting'});
+ if(kind==='photo'&&!mediaUrl)return res.status(400).json({error:'Rasm yuklang'});
+ if(kind==='video'&&!/^https?:\/\//i.test(mediaUrl))return res.status(400).json({error:'Video uchun to\'g\'ri https:// havola kiriting (yoki botda /broadcast ishlating)'});
+ const r=await runBroadcast({sender:req.me,target,kind,text,mediaUrl,preview:text,withBtn});
+ res.json({success:true,...r})}));
 app.get('/api/audit',need(...ADM),wrap(async(req,res)=>{const dd=x=>/^\d{4}-\d{2}-\d{2}$/.test(x||'')?x:null;
  res.json((await q(`select a.*,u.name actor_name from audit a left join users u on u.tg_id=a.actor where ($1::date is null or (a.at at time zone 'Asia/Tashkent')::date>=$1::date) and ($2::date is null or (a.at at time zone 'Asia/Tashkent')::date<=$2::date) order by a.id desc limit 1000`,[dd(req.query.from),dd(req.query.to)])).rows)}));
 app.get('/api/stats',need(...ADM),wrap(async(req,res)=>{
@@ -110,7 +132,7 @@ app.get('/api/stats',need(...ADM),wrap(async(req,res)=>{
  const t=(await q(`select count(*)::int orders,count(*) filter(where o.status<>'cancelled')::int valid_orders,count(*) filter(where o.status='cancelled')::int cancelled,coalesce(sum(o.total) filter(where o.status<>'cancelled'),0)::bigint revenue,coalesce(round(avg(o.total) filter(where o.status<>'cancelled')),0)::bigint avg_check,count(*) filter(where o.status in('new','age_check'))::int pending from orders o where ${df}`,[from,to])).rows[0];
  const byCat=(await q(`select coalesce(p.category,'Nabor') c,sum(coalesce(i.actual_sum,i.ordered_sum))::bigint s from order_items i join orders o on o.id=i.order_id and o.status<>'cancelled' and ${df} left join products p on p.id=i.product_id group by 1 order by 2 desc limit 6`,[from,to])).rows;
  const pc=(await q("select count(*)::int total,count(*) filter(where active)::int active from products")).rows[0];
- const cust=(await q(`select count(*)::int total,count(*) filter(where ($1::date is null or (created_at at time zone 'Asia/Tashkent')::date>=$1::date) and ($2::date is null or (created_at at time zone 'Asia/Tashkent')::date<=$2::date))::int added from users where phone is not null`,[from,to])).rows[0];
+ const cust=(await q(`select count(*)::int total,count(*) filter(where ($1::date is null or (created_at at time zone 'Asia/Tashkent')::date>=$1::date) and ($2::date is null or (created_at at time zone 'Asia/Tashkent')::date<=$2::date))::int added from users`,[from,to])).rows[0];
  res.json({totals:t,days,granularity:oneDay?'hour':'day',byCat,products:pc,customers:cust.total,newCustomers:cust.added})}));
 const YT=/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/;
 const KIND={banners:['image','title','subtitle','link'],videos:['title','yt_id'],bundles:['title','title_ru','description','description_ru','image','price']};
@@ -144,7 +166,7 @@ app.put('/api/content/:kind/:id/active',need(...ADM),wrap(async(req,res)=>{const
 app.delete('/api/content/:kind/:id',need(...ADM),wrap(async(req,res)=>{const k=req.params.kind;if(!KIND[k])return res.sendStatus(404);await q(`delete from ${k} where id=$1`,[+req.params.id]);await audit(req.me.tg_id,'content.'+k+'.delete',k+':'+req.params.id);res.json({success:true})}));
 
 app.get('/api/customers',need(...ADM),wrap(async(req,res)=>{const s='%'+String(req.query.q||'').trim().slice(0,40)+'%';
- res.json((await q(`select u.tg_id,u.name,u.phone,u.role,u.card_number,u.card_status,max(o.created_at) last,count(o.id) filter(where o.status<>'cancelled')::int orders,coalesce(sum(o.total) filter(where o.status<>'cancelled'),0)::bigint spent from users u left join orders o on o.user_id=u.tg_id where u.phone is not null and (u.name ilike $1 or u.phone ilike $1 or u.card_number ilike $1) group by u.tg_id order by last desc nulls last limit 200`,[s])).rows)}));
+ res.json((await q(`select u.tg_id,u.name,u.phone,u.role,u.card_number,u.card_status,max(o.created_at) last,count(o.id) filter(where o.status<>'cancelled')::int orders,coalesce(sum(o.total) filter(where o.status<>'cancelled'),0)::bigint spent from users u left join orders o on o.user_id=u.tg_id where (u.name ilike $1 or coalesce(u.phone,'') ilike $1 or coalesce(u.card_number,'') ilike $1) group by u.tg_id order by last desc nulls last,u.created_at desc limit 200`,[s])).rows)}));
 app.put('/api/content/banners/:id',need(...ADM),wrap(async(req,res)=>{const b=req.body;await q('update banners set title=$1,subtitle=$2,link=$3,image=coalesce(nullif($4,\'\'),image) where id=$5',[b.title||null,b.subtitle||null,b.link||null,b.image||'',+req.params.id]);await audit(req.me.tg_id,'content.banners.edit','banners:'+req.params.id,{title:b.title});res.json({success:true})}));
 app.post('/api/cats',need(...ADM),wrap(async(req,res)=>{const b=req.body,n=String(b.name||'').trim().slice(0,60);if(!n)return res.status(400).json({error:'Nom kerak'});
  const par=String(b.parent||'').trim().slice(0,60)||null;const cleanPar=par===n||par===b.old?null:par;
