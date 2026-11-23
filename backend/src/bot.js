@@ -112,7 +112,7 @@ O.setNotifier({
  async editRequested(o){for(const id of await staffIds())send(id,`✏️ Buyurtma #${o.id}: mijoz o'zgartirish so'radi`,Markup.inlineKeyboard([[Markup.button.callback('✅ Ruxsat',`e:ok:${o.id}`),Markup.button.callback('❌ Rad',`e:no:${o.id}`)]]))},
  async editDecided(o,ok){const l=tr(await userLang(o.user_id));send(o.user_id,ok?l.editOk(o.id):l.editNo(o.id))},
  async ageCheck(o,age){const l=tr(await userLang(o.user_id));send(o.user_id,l.ageMsg(o.id,age),Markup.inlineKeyboard([[Markup.button.callback(l.ageYes(age),`a:yes:${o.id}`),Markup.button.callback(l.ageNo,`a:no:${o.id}`)]]))},
- async newOrder(o,lines){const t=`🆕 <b>Buyurtma #${o.id}</b> (kod ${o.code})\n👤 ${esc(o.name)} ${esc(o.phone)}\n${o.type==='delivery'?"🚚 "+esc(o.address)+" — 📞 mijozga qo'ng'iroq qilib tasdiqlang":'🏃 Olib ketish'}\n\n`+lines.map(l=>`• ${esc(l.name)} — ${l.unit==='weight'?l.qty+' kg':l.qty+' dona'} = ${so(l.sum)}`).join('\n')+`\n\n💰 <b>${so(o.total)}</b>`;
+ async newOrder(o,lines){const cardLine=o.card_number?`\n💳 Diskont karta: <code>${esc(o.card_number)}</code> (2% keshbek)`:'';const t=`🆕 <b>Buyurtma #${o.id}</b> (kod ${o.code})\n👤 ${esc(o.name)} ${esc(o.phone)}${cardLine}\n${o.type==='delivery'?"🚚 "+esc(o.address)+" — 📞 mijozga qo'ng'iroq qilib tasdiqlang":'🏃 Olib ketish'}\n\n`+lines.map(l=>`• ${esc(l.name)} — ${l.unit==='weight'?l.qty+' kg':l.qty+' dona'} = ${so(l.sum)}`).join('\n')+`\n\n💰 <b>${so(o.total)}</b>`;
   for(const id of await staffIds())send(id,t,orderKb(o))},
  async statusChanged(o){const l=tr(await userLang(o.user_id)),m=l.status[o.status];if(!m)return;
   send(o.user_id,l.statusMsg(o.id,m,o.status==='ready'?o.code:null))},
@@ -123,7 +123,13 @@ O.setNotifier({
   send(id,`⏳ <b>${esc(r.action)}</b> — ${esc(r.department)} / ${esc(r.worker_name)}\n${esc(p.name)} — ${so(p.price||0)}`,Markup.inlineKeyboard([[Markup.button.callback('✅ Tasdiqlash',`p:ok:${r.id}`),Markup.button.callback('❌ Rad',`p:no:${r.id}`)]]))},
  async changeResolved(r,ok){send(r.worker_id,`${ok?'✅ Tasdiqlandi':'❌ Rad etildi'}: ${esc(r.product.name)}`)}
 });
+const notifyCardApplied=async u=>{for(const id of (await q("select tg_id from users where role in ('admin','superadmin')")).rows.map(x=>x.tg_id))
+ send(id,`💳 <b>Yangi diskont karta arizasi</b>\n👤 ${esc(u.fullName)}\n📞 ${esc(u.phone)}\n📍 ${esc(u.address)}\n🆔 <code>${u.tg_id}</code>\n\nAdmin panel → Kartalar bo'limidan karta raqamini biriktiring.`)};
+const notifyCardApproved=async(userId,num)=>{const lg=await userLang(userId);
+ send(userId,lg==='ru'?`🎉 <b>Поздравляем!</b> Ваша дисконтная карта TEGEN готова.\n💳 Номер карты: <code>${esc(num)}</code>\n💰 Кешбэк <b>2%</b> будет автоматически начисляться при каждом заказе!`:`🎉 <b>Tabriklaymiz!</b> TEGEN Diskont kartangiz tayyor.\n💳 Karta raqami: <code>${esc(num)}</code>\n💰 Har buyurtmangizda karta raqamingiz yuboriladi va <b>2% keshbek</b> qo'shiladi!`)};
+const notifyCardRejected=async userId=>{const lg=await userLang(userId);
+ send(userId,lg==='ru'?'❌ Ваша заявка на дисконтную карту отклонена. Вы можете подать заявку повторно в профиле.':'❌ Diskont karta arizangiz rad etildi. Profildan qayta ariza yuborishingiz mumkin.')};
 bot.catch(e=>console.error('bot',e));
 if(process.env.BOT_TOKEN&&process.env.WEBAPP_URL)bot.telegram.setChatMenuButton({menuButton:{type:'web_app',text:"🛒 Do'kon",web_app:{url:process.env.WEBAPP_URL}}}).catch(e=>console.error('menu',e.message));
-module.exports={bot};
+module.exports={bot,notifyCardApplied,notifyCardApproved,notifyCardRejected};
 

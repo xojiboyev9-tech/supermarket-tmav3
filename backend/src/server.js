@@ -1,7 +1,7 @@
 // JOYI: backend/src/server.js  (GitHub'da shu yo'l bilan yarating)
 require('dotenv').config();
 const express=require('express'),helmet=require('helmet'),cors=require('cors'),rate=require('express-rate-limit'),crypto=require('crypto');
-const {q,audit,getSetting,setSetting}=require('./db');const O=require('./orders');const {bot}=require('./bot');
+const {q,audit,getSetting,setSetting}=require('./db');const O=require('./orders');const {bot,notifyCardApplied,notifyCardApproved,notifyCardRejected}=require('./bot');
 process.on('unhandledRejection',e=>console.error('unhandled',e));
 const app=express();app.set('trust proxy',1);app.use(helmet({contentSecurityPolicy:false,crossOriginEmbedderPolicy:false,frameguard:false,referrerPolicy:{policy:'strict-origin-when-cross-origin'}}));
 app.use(cors({origin:(process.env.WEBAPP_URL||'').replace(/\/+$/,'')}));app.use(express.json({limit:'1mb'}));
@@ -20,20 +20,55 @@ const auth=async(req,res,next)=>{try{
 }catch{res.status(401).json({error:'Avtorizatsiya xatosi'})}};
 const need=(...r)=>(req,res,next)=>r.includes(req.me.role)?next():res.status(403).json({error:"Ruxsat yo'q"});
 const STAFF=['operator','admin','superadmin'],ADM=['admin','superadmin'];
+const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and (sale_until is null or sale_until>now())';
 app.use('/api',auth);
 app.get('/api/init',wrap(async(req,res)=>{const m=req.me,staff=STAFF.includes(m.role),wh=(await getSetting('warehouse')).enabled,d=await getSetting('delivery');
  const anim=(await q("select value from settings where key='animation'")).rows[0]?.value||{preset:'none'};
  const banners=(await q('select id,image,title,subtitle,link from banners where active order by sort,id')).rows,
-  bundles=(await q(`select b.id,b.title,b.description,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`)).rows,
+  bundles=(await q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`)).rows,
   videos=(await q('select id,title,yt_id from videos where active order by id desc')).rows,
   cats=(await q('select name,name_ru,image,section,sort,parent from categories order by sort,id')).rows;
- const ord=(await q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'min_grams',p.min_grams,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit 200`,staff?[]:[m.tg_id])).rows;
- res.json({role:m.role,workerDepartment:m.department,user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz'},warehouseEnabled:wh,
+ const saleCount=(await q(`select count(*)::int c from products where active and ${SALE_SQL}`)).rows[0].c;
+ const pendingCardsCount=ADM.includes(m.role)?(await q("select count(*)::int c from users where card_status='pending'")).rows[0].c:0;
+ const ord=(await q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'min_grams',p.min_grams,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit 200`,staff?[]:[m.tg_id])).rows;
+ res.json({role:m.role,workerDepartment:m.department,user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},warehouseEnabled:wh,saleCount,pendingCardsCount,
   settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,note:d.note||''},animation:anim},
   cats,categories:cats.map(c=>c.name),products:[],banners,bundles,videos,orders:ord,
   pendingProducts:ADM.includes(m.role)?(await q('select * from pending_changes order by id')).rows:[],
   roles:m.role==='superadmin'?(await q("select tg_id,name,role,department from users where role<>'user'")).rows:null})}));
 app.put('/api/user/lang',wrap(async(req,res)=>{const lang=req.body.lang==='ru'?'ru':'uz';await q('update users set lang=$1 where tg_id=$2',[lang,req.me.tg_id]);res.json({lang})}));
+app.post('/api/card/apply',wrap(async(req,res)=>{
+ if(req.me.card_status==='active'&&req.me.card_number)return res.status(400).json({error:'Sizda diskont karta allaqachon mavjud'});
+ const fullName=String(req.body.fullName||'').trim().slice(0,120),phone=String(req.body.phone||req.me.phone||'').trim().slice(0,40),address=String(req.body.address||'').trim().slice(0,250);
+ if(fullName.length<3||phone.length<7||address.length<5)return res.status(400).json({error:"Ism-familiya, telefon va yashash manzilini to'liq kiriting"});
+ await q("update users set card_status='pending',card_full_name=$1,card_phone=$2,card_address=$3,card_applied_at=now() where tg_id=$4",[fullName,phone,address,req.me.tg_id]);
+ await audit(req.me.tg_id,'card.apply','user:'+req.me.tg_id,{fullName,phone});
+ notifyCardApplied({tg_id:req.me.tg_id,fullName,phone,address});
+ res.json({success:true})}));
+app.get('/api/cards',need(...ADM),wrap(async(req,res)=>{
+ const pending=(await q("select tg_id,name,phone,card_full_name,card_phone,card_address,card_applied_at from users where card_status='pending' order by card_applied_at desc nulls last")).rows;
+ const active=(await q("select tg_id,name,phone,card_number,card_full_name,card_phone,card_address,card_applied_at from users where card_status='active' and card_number is not null order by card_applied_at desc nulls last limit 300")).rows;
+ res.json({pending,active})}));
+app.post('/api/cards/:tgId/approve',need(...ADM),wrap(async(req,res)=>{
+ const num=String(req.body.cardNumber||'').trim().slice(0,40);if(num.length<3)return res.status(400).json({error:'Karta raqamini kiriting'});
+ const tid=req.params.tgId;
+ await q("update users set card_number=$1,card_status='active',card_applied_at=coalesce(card_applied_at,now()) where tg_id=$2",[num,tid]);
+ await audit(req.me.tg_id,'card.approve','user:'+tid,{card:num});
+ notifyCardApproved(tid,num);
+ res.json({success:true})}));
+app.post('/api/cards/:tgId/reject',need(...ADM),wrap(async(req,res)=>{
+ const tid=req.params.tgId;
+ await q("update users set card_status='rejected' where tg_id=$1 and card_status='pending'",[tid]);
+ await audit(req.me.tg_id,'card.reject','user:'+tid);
+ notifyCardRejected(tid);
+ res.json({success:true})}));
+app.put('/api/cards/:tgId',need(...ADM),wrap(async(req,res)=>{
+ const num=String(req.body.cardNumber||'').trim().slice(0,40),tid=req.params.tgId;
+ if(!num){await q('update users set card_number=null,card_status=null where tg_id=$1',[tid]);await audit(req.me.tg_id,'card.remove','user:'+tid);return res.json({success:true})}
+ await q("update users set card_number=$1,card_status='active',card_applied_at=coalesce(card_applied_at,now()) where tg_id=$2",[num,tid]);
+ await audit(req.me.tg_id,'card.bind','user:'+tid,{card:num});
+ notifyCardApproved(tid,num);
+ res.json({success:true})}));
 app.post('/api/delivery/quote',wrap(async(req,res)=>res.json(await O.deliveryFee(Number(req.body.subtotal)||0,{lat:Number(req.body.lat),lng:Number(req.body.lng)}))));
 app.post('/api/orders',wrap(async(req,res)=>res.json({success:true,order:await O.createOrder(req.me,req.body)})));
 app.post('/api/orders/:id/status',need(...STAFF),wrap(async(req,res)=>res.json(await O.setStatus(req.me.tg_id,+req.params.id,req.body.status,req.body.fee))));
@@ -74,19 +109,20 @@ app.get('/api/stats',need(...ADM),wrap(async(req,res)=>{
  const cust=(await q(`select count(*)::int total,count(*) filter(where ($1::date is null or (created_at at time zone 'Asia/Tashkent')::date>=$1::date) and ($2::date is null or (created_at at time zone 'Asia/Tashkent')::date<=$2::date))::int added from users where phone is not null`,[from,to])).rows[0];
  res.json({totals:t,days,granularity:oneDay?'hour':'day',byCat,products:pc,customers:cust.total,newCustomers:cust.added})}));
 const YT=/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/;
-const KIND={banners:['image','title','subtitle','link'],videos:['title','yt_id'],bundles:['title','description','image','price']};
-const PSEL='id,category,name,name_uz,description,min_grams,unit,price,image,age_min';
-app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
+const KIND={banners:['image','title','subtitle','link'],videos:['title','yt_id'],bundles:['title','title_ru','description','description_ru','image','price']};
+const PSEL='id,category,name,name_uz,description,min_grams,unit,price,sale_price,sale_until,image,age_min';
+app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),sale=req.query.sale==='1',pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
  if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
+ if(sale)w.push(SALE_SQL);
  if((await getSetting('warehouse')).enabled)w.push('(stock is null or stock>0)');
- const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by name limit 51 offset ${pg*50}`,p)).rows;
+ const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by ${sale?'sale_until nulls last,name':'name'} limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
 app.get('/api/admin/products',need('worker','operator',...ADM),wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),st=req.query.state,cat=String(req.query.cat||''),pg=Math.max(0,Math.min(2000,+req.query.page||0)),w=['true'],p=[];
  if(req.me.role==='worker'){p.push(req.me.department);w.push(`category=$${p.length}`)}
  else if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
- if(st==='on')w.push('active');if(st==='off')w.push('not active');
+ if(st==='on')w.push('active');if(st==='off')w.push('not active');if(st==='sale')w.push(SALE_SQL);
  const r=(await q(`select ${PSEL},active,stock,barcode from products where ${w.join(' and ')} order by name limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
 app.get('/api/recommend',wrap(async(req,res)=>{const cats=String(req.query.cats||'').split('|').filter(Boolean).slice(0,6),ex=String(req.query.ex||'').split(',').map(Number).filter(Boolean).slice(0,60);
@@ -104,7 +140,7 @@ app.put('/api/content/:kind/:id/active',need(...ADM),wrap(async(req,res)=>{const
 app.delete('/api/content/:kind/:id',need(...ADM),wrap(async(req,res)=>{const k=req.params.kind;if(!KIND[k])return res.sendStatus(404);await q(`delete from ${k} where id=$1`,[+req.params.id]);await audit(req.me.tg_id,'content.'+k+'.delete',k+':'+req.params.id);res.json({success:true})}));
 
 app.get('/api/customers',need(...ADM),wrap(async(req,res)=>{const s='%'+String(req.query.q||'').trim().slice(0,40)+'%';
- res.json((await q(`select u.tg_id,u.name,u.phone,u.role,max(o.created_at) last,count(o.id) filter(where o.status<>'cancelled')::int orders,coalesce(sum(o.total) filter(where o.status<>'cancelled'),0)::bigint spent from users u left join orders o on o.user_id=u.tg_id where u.phone is not null and (u.name ilike $1 or u.phone ilike $1) group by u.tg_id order by last desc nulls last limit 200`,[s])).rows)}));
+ res.json((await q(`select u.tg_id,u.name,u.phone,u.role,u.card_number,u.card_status,max(o.created_at) last,count(o.id) filter(where o.status<>'cancelled')::int orders,coalesce(sum(o.total) filter(where o.status<>'cancelled'),0)::bigint spent from users u left join orders o on o.user_id=u.tg_id where u.phone is not null and (u.name ilike $1 or u.phone ilike $1 or u.card_number ilike $1) group by u.tg_id order by last desc nulls last limit 200`,[s])).rows)}));
 app.put('/api/content/banners/:id',need(...ADM),wrap(async(req,res)=>{const b=req.body;await q('update banners set title=$1,subtitle=$2,link=$3,image=coalesce(nullif($4,\'\'),image) where id=$5',[b.title||null,b.subtitle||null,b.link||null,b.image||'',+req.params.id]);await audit(req.me.tg_id,'content.banners.edit','banners:'+req.params.id,{title:b.title});res.json({success:true})}));
 app.post('/api/cats',need(...ADM),wrap(async(req,res)=>{const b=req.body,n=String(b.name||'').trim().slice(0,60);if(!n)return res.status(400).json({error:'Nom kerak'});
  const par=String(b.parent||'').trim().slice(0,60)||null;const cleanPar=par===n||par===b.old?null:par;
