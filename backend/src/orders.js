@@ -12,6 +12,7 @@ async function deliveryFee(subtotal,pt){
  return{fee:Math.min(d.baseFee,...fees),dist:Math.round(dist*10)/10};
 }
 exports.deliveryFee=deliveryFee;
+const effPrice=p=>(p.sale_price&&p.sale_price>0&&p.sale_price<p.price&&(!p.sale_until||new Date(p.sale_until)>new Date()))?p.sale_price:p.price;
 exports.createOrder=async(me,b)=>{
  if(!Array.isArray(b.items)||!b.items.length||b.items.length>60)throw bad("Savat bo'sh");
  if(!me.phone)throw bad('Avval botda telefon raqamni yuboring');
@@ -20,19 +21,20 @@ exports.createOrder=async(me,b)=>{
   for(const it of b.items){
    if(it.bundleId){const bd=(await c.query("select b.*,(select string_agg(p.name||' ×'||bi.qty::text,', ') from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id) comp from bundles b where id=$1 and active",[Number(it.bundleId)])).rows[0];if(!bd)throw bad('Nabor topilmadi');const bq=Number(it.qty);if(!Number.isInteger(bq)||bq<1||bq>20)throw bad("Nabor soni noto'g'ri");subtotal+=bd.price*bq;lines.push([{id:null,name:'🎁 '+bd.title+(bd.comp?' ('+bd.comp+')':''),unit:'piece',price:bd.price},bq,bd.price*bq]);continue}
    const p=(await c.query('select * from products where id=$1 and active for update',[Number(it.productId??it.id)])).rows[0];
-   if(!p)throw bad('Mahsulot topilmadi');age=Math.max(age,p.age_min||0);let qty,sum;
-   if(p.unit==='weight'&&p.min_grams>0){const g=Math.round(Number(it.grams));if(!(g>=p.min_grams&&g<=20000&&g%50===0))throw bad(`${p.name}: og'irlik noto'g'ri`);qty=g/1000;sum=Math.round(p.price*g/1000)}else if(p.unit==='weight'){sum=Math.round(Number(it.sum));if(!(sum>=1000&&sum<=5000000))throw bad(`${p.name}: summa noto'g'ri`);qty=Math.round(sum/p.price*1000)/1000}
-   else{qty=Number(it.qty);if(!Number.isInteger(qty)||qty<1||qty>100)throw bad(`${p.name}: soni noto'g'ri`);sum=qty*p.price}
+   if(!p)throw bad('Mahsulot topilmadi');age=Math.max(age,p.age_min||0);const up=effPrice(p);let qty,sum;
+   if(p.unit==='weight'&&p.min_grams>0){const g=Math.round(Number(it.grams));if(!(g>=p.min_grams&&g<=20000&&g%50===0))throw bad(`${p.name}: og'irlik noto'g'ri`);qty=g/1000;sum=Math.round(up*g/1000)}else if(p.unit==='weight'){sum=Math.round(Number(it.sum));if(!(sum>=1000&&sum<=5000000))throw bad(`${p.name}: summa noto'g'ri`);qty=Math.round(sum/up*1000)/1000}
+   else{qty=Number(it.qty);if(!Number.isInteger(qty)||qty<1||qty>500)throw bad(`${p.name}: soni noto'g'ri`);sum=qty*up}
    if(wh&&p.stock!==null){if(Number(p.stock)<qty)throw bad(`${p.name}: omborda yetarli emas`);await c.query('update products set stock=stock-$1 where id=$2',[qty,p.id])}
-   subtotal+=sum;lines.push([p,qty,sum]);
+   subtotal+=sum;lines.push([{...p,price:up},qty,sum]);
   }
   let fee=0,type='pickup';
   if(b.type==='delivery'){const dv=await getSetting('delivery');if(!dv.enabled)throw bad("Yetkazib berish hozir o'chirilgan");if(subtotal<(dv.minTotal||0))throw bad(`Yetkazib berish ${(dv.minTotal||0).toLocaleString('ru-RU')} so'mdan boshlanadi`);if(String(b.address||'').trim().length<5)throw bad('Manzilni yozing');type='delivery'}
   const code=String(1000+Math.floor(Math.random()*9000));
-  const o=(await c.query('insert into orders(code,user_id,name,phone,type,address,lat,lng,delivery_fee,subtotal,total) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10::int+$9::int) returning *',[code,me.tg_id,me.name,me.phone,type,String(b.address||'').slice(0,300),b.lat||null,b.lng||null,fee,subtotal])).rows[0];
+  const cardNum=me.card_status==='active'&&me.card_number?me.card_number:null;
+  const o=(await c.query('insert into orders(code,user_id,name,phone,type,address,lat,lng,delivery_fee,subtotal,total,card_number) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10::int+$9::int,$11) returning *',[code,me.tg_id,me.name,me.phone,type,String(b.address||'').slice(0,300),b.lat||null,b.lng||null,fee,subtotal,cardNum])).rows[0];
   for(const [p,qty,sum] of lines)await c.query('insert into order_items(order_id,product_id,name,unit,unit_price,qty,ordered_sum) values($1,$2,$3,$4,$5,$6,$7)',[o.id,p.id,p.name,p.unit,p.price,qty,sum]);
   if(age>0){await c.query("update orders set status='age_check' where id=$1",[o.id]);o.status='age_check'}
-  await c.query('commit');await audit(me.tg_id,'order.create','order:'+o.id,{total:o.total,age});
+  await c.query('commit');await audit(me.tg_id,'order.create','order:'+o.id,{total:o.total,age,card:cardNum});
   if(age>0)N.ageCheck(o,age);else N.newOrder(o,lines.map(([p,qty,sum])=>({name:p.name,unit:p.unit,qty,sum})));return o;
  }catch(e){await c.query('rollback');throw e}finally{c.release()}
 };
@@ -62,15 +64,18 @@ exports.confirm=async(userId,id,yes)=>{
  else{await q("update orders set status='cancelled' where id=$1",[id]);await restock(id)}
  await audit(userId,yes?'order.confirm_price':'order.reject_price','order:'+id);N.confirmDone(o,yes);
 };
+const parseSale=(price,sp,su)=>{const n=Math.round(Number(sp)||0);if(!(n>0&&n<price))return{sale_price:null,sale_until:null};let dt=null;if(su){const d=new Date(su);if(!Number.isNaN(d.getTime()))dt=d.toISOString()}return{sale_price:n,sale_until:dt}};
 exports.saveProduct=async(me,body,id)=>{
- const d={name:String(body.name||'').trim().slice(0,120),price:Math.round(Number(body.price)),unit:body.unit==='weight'?'weight':'piece',image:body.image||null,category:body.category,name_uz:String(body.name_uz||'').trim().slice(0,120)||null,description:String(body.description||'').slice(0,600)||null,min_grams:Math.max(0,Math.min(5000,Math.round(Number(body.min_grams))||0)),age_min:Math.max(0,Math.min(99,Math.round(Number(body.age_min))||0)),barcode:String(body.barcode||'').trim().slice(0,64)||null};
+ const price=Math.round(Number(body.price));
+ const sl=parseSale(price,body.sale_price,body.sale_until);
+ const d={name:String(body.name||'').trim().slice(0,120),price,unit:body.unit==='weight'?'weight':'piece',image:body.image||null,category:body.category,name_uz:String(body.name_uz||'').trim().slice(0,120)||null,description:String(body.description||'').slice(0,600)||null,min_grams:Math.max(0,Math.min(5000,Math.round(Number(body.min_grams))||0)),age_min:Math.max(0,Math.min(99,Math.round(Number(body.age_min))||0)),barcode:String(body.barcode||'').trim().slice(0,64)||null,sale_price:sl.sale_price,sale_until:sl.sale_until};
  if(!d.name||!(d.price>0))throw bad("Nom va narx noto'g'ri");
  if(me.role==='worker'){d.category=me.department;
   const r=(await q("insert into pending_changes(action,product,worker_id,worker_name,department) values($1,$2,$3,$4,$5) returning *",[id?'edit':'add',{...d,id},me.tg_id,me.name,me.department])).rows[0];
   await audit(me.tg_id,'product.request','change:'+r.id,d);N.pending(r);return{pending:true}}
  const isEdit=!!id;
- if(isEdit)await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),category=$5,age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11 where id=$6',[d.name,d.price,d.unit,d.image,d.category,id,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode]);
- else id=(await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id',[d.name,d.price,d.unit,d.image,d.category,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode])).rows[0].id;
+ if(isEdit)await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),category=$5,age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11,sale_price=$12,sale_until=$13 where id=$6',[d.name,d.price,d.unit,d.image,d.category,id,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode,d.sale_price,d.sale_until]);
+ else id=(await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode,sale_price,sale_until) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id',[d.name,d.price,d.unit,d.image,d.category,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode,d.sale_price,d.sale_until])).rows[0].id;
  await audit(me.tg_id,isEdit?'product.save':'product.add','product:'+id,d);return{id};
 };
 exports.deleteProduct=async(me,id)=>{
@@ -82,8 +87,8 @@ exports.deleteProduct=async(me,id)=>{
 exports.resolveChange=async(actor,id,ok)=>{
  const r=(await q('delete from pending_changes where id=$1 returning *',[id])).rows[0];if(!r)throw bad("So'rov topilmadi");
  if(ok){const p=r.product;
-  if(r.action==='add')await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[p.name,p.price,p.unit,p.image,p.category,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null]);
-  else if(r.action==='edit')await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11 where id=$5 and category=$6',[p.name,p.price,p.unit,p.image,p.id,r.department,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null]);
+  if(r.action==='add')await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode,sale_price,sale_until) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[p.name,p.price,p.unit,p.image,p.category,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null,p.sale_price||null,p.sale_until||null]);
+  else if(r.action==='edit')await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11,sale_price=$12,sale_until=$13 where id=$5 and category=$6',[p.name,p.price,p.unit,p.image,p.id,r.department,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null,p.sale_price||null,p.sale_until||null]);
   else await q('update products set active=false where id=$1 and category=$2',[p.id,r.department])}
  await audit(actor,ok?'change.approve':'change.reject','change:'+id,r.product);N.changeResolved(r,ok);
 };
