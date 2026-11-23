@@ -69,7 +69,11 @@ const RU={
   "Nabor tavsifi (o'zbekcha)":"Описание набора (узбекский)","Описание набора (русский)":"Описание набора (русский)",
   "Telegramda yozish":"Написать в Telegram","Qo'ng'iroq qilish":"Позвонить",
   "Operator bilan bog'lanish":"Связаться с оператором",
-  "Telefon raqam (ixtiyoriy)":"Номер телефона (необязательно)"
+  "Telefon raqam (ixtiyoriy)":"Номер телефона (необязательно)",
+  "Aksiya tugashigacha":"До конца акции","Davomiylik":"Длительность","Aniq sana":"Точная дата",
+  "Kun":"Дни","Soat":"Часы","Daqiqa":"Минуты","Soniya":"Сек",
+  "Bugun 23:59":"Сегодня 23:59","Ertaga 23:59":"Завтра 23:59","Vaqtsiz":"Без срока",
+  "Muddatsiz aksiya":"Акция без ограничения времени","O'tgan vaqt kiritilgan":"Указано прошедшее время"
 }
 
 const fmtPhone=p=>{const s=String(p||'').replace(/\D/g,'');return s.length===12&&s.startsWith('998')?`+998 ${s.slice(3,5)} ${s.slice(5,8)} ${s.slice(8,10)} ${s.slice(10)}`:(s?'+'+s:'')}
@@ -182,8 +186,8 @@ const iso=n=>new Date(Date.now()+5*3600e3-n*864e5).toISOString().slice(0,10)
 const fmt=s=>s?s.split('-').reverse().join('.'):''
 const parseDate=s=>{const m=/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/.exec((s||'').trim());return m?`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:null}
 
-function Countdown({until,cls='sale-timer'}){
-  const {lang}=useLang()
+function Countdown({until,mode='card'}){
+  const {t,lang}=useLang()
   const [now,setNow]=useState(()=>Date.now())
   useEffect(()=>{
     if(!until)return
@@ -198,7 +202,25 @@ function Countdown({until,cls='sale-timer'}){
   const d=Math.floor(diff/86400),h=Math.floor((diff%86400)/3600),m=Math.floor((diff%3600)/60),s=diff%60
   const pad=n=>String(n).padStart(2,'0')
   const txt=(d>0?`${d}${lang==='ru'?'д':'k'} `:'')+`${pad(h)}:${pad(m)}:${pad(s)}`
-  return <span className={cls}>⏱ {txt}</span>
+  if(mode==='blocks'){
+    const units=d>0
+      ?[[pad(d),lang==='ru'?'дн':'kun'],[pad(h),lang==='ru'?'час':'soat'],[pad(m),lang==='ru'?'мин':'daq'],[pad(s),lang==='ru'?'сек':'son']]
+      :[[pad(h),lang==='ru'?'час':'soat'],[pad(m),lang==='ru'?'мин':'daq'],[pad(s),lang==='ru'?'сек':'son']]
+    return <div className="cd-card">
+      <div className="cd-head">
+        <span>🔥 {t("Aksiya tugashigacha")}</span>
+        <span style={{opacity:.8,fontWeight:700}}>{fmtDt(until)}</span>
+      </div>
+      <div className="cd-grid">
+        {units.map(([v,u],i)=><div key={u} style={{display:'contents'}}>
+          {i>0&&<span className="cd-sep">:</span>}
+          <div className="cd-unit"><b>{v}</b><small>{u}</small></div>
+        </div>)}
+      </div>
+    </div>
+  }
+  if(mode==='inline')return <span className="sale-timer-inline"><i className="st-dot"/>{txt}</span>
+  return <span className="sale-timer"><i className="st-dot"/>{txt}</span>
 }
 
 function PriceTag({p,big=false}){
@@ -220,10 +242,10 @@ function Thumb({p,cls='img',hideSale=false}){
   const on=!hideSale&&cls==='img'&&isSale(p)
   const pct=on?Math.max(1,Math.round((1-p.sale_price/p.price)*100)):0
   return <div className={cls} style={p.image?{backgroundImage:`url(${p.image})`}:{}}>
-    {!p.image&&<span>{p.bundle?'🎁':EMO[p.category]||'🛒'}</span>}
+    {!p.image&&<span className="emo">{p.bundle?'🎁':EMO[p.category]||'🛒'}</span>}
     {p.age_min>0&&<i className="age">{p.age_min}+</i>}
     {on&&<span className="disc">−{pct}%</span>}
-    {on&&p.sale_until&&<Countdown until={p.sale_until}/>}
+    {on&&p.sale_until&&<Countdown until={p.sale_until} mode="card"/>}
   </div>
 }
 
@@ -378,7 +400,7 @@ function Detail({p,cart,put,close,onWeight}){
     <div style={{position:'relative'}}><Thumb p={p} cls="dimg" hideSale/>{on&&<span className="disc" style={{fontSize:13,padding:'4px 10px'}}>−{pct}%</span>}</div>
     <h2 style={{marginTop:12,fontSize:18}}>{pn(p)}</h2>
     <PriceTag p={p} big/>
-    {on&&p.sale_until&&<div style={{marginTop:8}}><Countdown until={p.sale_until} cls="sale-timer-lg"/></div>}
+    {on&&p.sale_until&&<Countdown until={p.sale_until} mode="blocks"/>}
     <div className="gap" style={{margin:'8px 0'}}><span className="badge gray">{t(p.category||'Boshqa')}</span>{p.age_min>0&&<span className="badge red">{p.age_min}+</span>}{p.min_grams>0&&<span className="badge amber">{t("Minimal")}: {p.min_grams} g</span>}</div>
     {p.description&&<p className="m" style={{fontSize:13.5,margin:'6px 0 12px'}}>{p.description}</p>}
     {p.unit==='weight'?<button className="btn" onClick={()=>{close();onWeight(p)}}>{it?so(lsum(p,it)):t("Savatga")}</button>
@@ -1053,9 +1075,157 @@ function AdminOrders({d,act,say}){
   </div>)}</>
 }
 
+function SaleTimePicker({value,onChange}){
+  const {t}=useLang()
+  const pad=n=>String(n).padStart(2,'0')
+  const parseExact=v=>{
+    const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(v||'')
+    if(m)return {yy:m[1],mm:m[2],dd:m[3],hh:m[4],mi:m[5]}
+    const d=new Date(Date.now()+864e5)
+    return {yy:String(d.getFullYear()),mm:pad(d.getMonth()+1),dd:pad(d.getDate()),hh:'23',mi:'59'}
+  }
+  const parseDur=v=>{
+    if(!v)return {d:'0',h:'0',m:'0'}
+    const diff=Math.max(0,Math.round((new Date(v).getTime()-Date.now())/60000))
+    if(!diff)return {d:'0',h:'0',m:'0'}
+    return {d:String(Math.floor(diff/1440)),h:String(Math.floor((diff%1440)/60)),m:String(diff%60)}
+  }
+  const [mode,setMode]=useState('dur')
+  const [dur,setDur]=useState(()=>parseDur(value))
+  const [ex,setEx]=useState(()=>parseExact(value))
+  const [presetKey,setPresetKey]=useState('')
+  const selfRef=useRef(false)
+
+  useEffect(()=>{
+    if(selfRef.current){selfRef.current=false;return}
+    setDur(parseDur(value))
+    if(value)setEx(parseExact(value))
+    setPresetKey('')
+  },[value])
+
+  const emit=localStr=>{
+    selfRef.current=true
+    onChange(localStr)
+    if(localStr)setEx(parseExact(localStr))
+  }
+
+  const applyDur=(next,pk='')=>{
+    setDur(next);setPresetKey(pk)
+    const dn=Math.min(365,Number(next.d)||0),hn=Math.min(999,Number(next.h)||0),mn=Math.min(5999,Number(next.m)||0)
+    const total=dn*1440+hn*60+mn
+    if(total>0)emit(toLocalInput(new Date(Date.now()+total*60000).toISOString()))
+    else emit('')
+  }
+  const stepDur=(k,delta,max)=>{
+    const cur=Number(dur[k])||0
+    const nv=Math.max(0,Math.min(max,cur+delta))
+    applyDur({...dur,[k]:String(nv)})
+  }
+  const typeDur=(k,raw,max)=>{
+    const c=raw.replace(/\D/g,'').slice(0,3)
+    const num=c?Math.min(max,Number(c)):0
+    applyDur({...dur,[k]:c===''?'':String(num)})
+  }
+
+  const commitExact=(next,clamp=false)=>{
+    let {yy,mm,dd,hh,mi}=next
+    if(clamp){
+      const y=Math.max(2024,Math.min(2035,Number(yy)||new Date().getFullYear()))
+      const mo=Math.max(1,Math.min(12,Number(mm)||1))
+      const maxD=new Date(y,mo,0).getDate()
+      const da=Math.max(1,Math.min(maxD,Number(dd)||1))
+      const hr=Math.max(0,Math.min(23,Number(hh)||0))
+      const mn=Math.max(0,Math.min(59,Number(mi)||0))
+      next={yy:String(y),mm:pad(mo),dd:pad(da),hh:pad(hr),mi:pad(mn)}
+    }
+    setEx(next);setPresetKey('')
+    const y=Number(next.yy),mo=Number(next.mm),da=Number(next.dd),hr=Number(next.hh),mn=Number(next.mi)
+    if(next.yy.length===4&&mo>=1&&mo<=12&&da>=1&&da<=31&&hr>=0&&hr<=23&&mn>=0&&mn<=59){
+      const dt=new Date(y,mo-1,da,hr,mn)
+      if(!Number.isNaN(dt.getTime())&&dt.getMonth()===mo-1&&dt.getDate()===da){
+        selfRef.current=true
+        const loc=toLocalInput(dt.toISOString())
+        onChange(loc)
+        setDur(parseDur(loc))
+      }
+    }
+  }
+  const setEndOfDay=addDays=>{
+    const dt=new Date();dt.setDate(dt.getDate()+addDays);dt.setHours(23,59,0,0)
+    const loc=toLocalInput(dt.toISOString())
+    emit(loc);setDur(parseDur(loc));setPresetKey('eod'+addDays)
+  }
+
+  const parsed=value?new Date(value):null
+  const validFuture=parsed&&!Number.isNaN(parsed.getTime())&&parsed.getTime()>Date.now()
+  const isPast=parsed&&!Number.isNaN(parsed.getTime())&&parsed.getTime()<=Date.now()
+
+  return <>
+    <div className="tp-tabs">
+      <button type="button" className={mode==='dur'?'on':''} onClick={()=>{setMode('dur');setDur(parseDur(value))}}>⏱ {t("Davomiylik")}</button>
+      <button type="button" className={mode==='exact'?'on':''} onClick={()=>{setMode('exact');setEx(parseExact(value))}}>📅 {t("Aniq sana")}</button>
+    </div>
+
+    {mode==='dur'?<>
+      <div className="tp-dur-grid">
+        {[['d',t("Kun"),365],['h',t("Soat"),23],['m',t("Daqiqa"),59]].map(([k,lbl,mx])=><div className="tp-box" key={k}>
+          <label>{lbl}</label>
+          <div className="tp-ctrl">
+            <button type="button" onClick={()=>stepDur(k,-1,mx)}>−</button>
+            <input type="text" inputMode="numeric" pattern="[0-9]*" value={dur[k]} onFocus={e=>e.target.select()} onChange={e=>typeDur(k,e.target.value,mx)} onBlur={()=>{if(dur[k]==='')setDur(x=>({...x,[k]:'0'}))}}/>
+            <button type="button" onClick={()=>stepDur(k,1,mx)}>+</button>
+          </div>
+        </div>)}
+      </div>
+      <div className="tp-presets">
+        {[['3h','3 soat',{d:'0',h:'3',m:'0'}],['12h','12 soat',{d:'0',h:'12',m:'0'}],['1d','1 kun',{d:'1',h:'0',m:'0'}],['3d','3 kun',{d:'3',h:'0',m:'0'}],['7d','7 kun',{d:'7',h:'0',m:'0'}],['30d','30 kun',{d:'30',h:'0',m:'0'}]].map(([k,lbl,val])=>
+          <button key={k} type="button" className={presetKey===k?'on':''} onClick={()=>applyDur(val,k)}>+{lbl}</button>)}
+        {value&&<button type="button" onClick={()=>{applyDur({d:'0',h:'0',m:'0'},'')}}>✕ {t("Vaqtsiz")}</button>}
+      </div>
+    </>:<>
+      <div className="tp-exact">
+        <div className="tp-group">
+          <span>📅 {t("Sana")} (KK.OO.YYYY)</span>
+          <div className="tp-parts">
+            <input type="text" inputMode="numeric" maxLength={2} placeholder="KK" value={ex.dd} onFocus={e=>e.target.select()} onChange={e=>commitExact({...ex,dd:e.target.value.replace(/\D/g,'').slice(0,2)})} onBlur={()=>commitExact(ex,true)}/>
+            <i>.</i>
+            <input type="text" inputMode="numeric" maxLength={2} placeholder="OO" value={ex.mm} onFocus={e=>e.target.select()} onChange={e=>commitExact({...ex,mm:e.target.value.replace(/\D/g,'').slice(0,2)})} onBlur={()=>commitExact(ex,true)}/>
+            <i>.</i>
+            <input style={{flex:'1.5'}} type="text" inputMode="numeric" maxLength={4} placeholder="YYYY" value={ex.yy} onFocus={e=>e.target.select()} onChange={e=>commitExact({...ex,yy:e.target.value.replace(/\D/g,'').slice(0,4)})} onBlur={()=>commitExact(ex,true)}/>
+          </div>
+        </div>
+        <div className="tp-group">
+          <span>🕐 {t("Soat")} (SS:DD)</span>
+          <div className="tp-parts">
+            <input type="text" inputMode="numeric" maxLength={2} placeholder="23" value={ex.hh} onFocus={e=>e.target.select()} onChange={e=>commitExact({...ex,hh:e.target.value.replace(/\D/g,'').slice(0,2)})} onBlur={()=>commitExact(ex,true)}/>
+            <i>:</i>
+            <input type="text" inputMode="numeric" maxLength={2} placeholder="59" value={ex.mi} onFocus={e=>e.target.select()} onChange={e=>commitExact({...ex,mi:e.target.value.replace(/\D/g,'').slice(0,2)})} onBlur={()=>commitExact(ex,true)}/>
+          </div>
+        </div>
+      </div>
+      <div className="tp-presets">
+        <button type="button" className={presetKey==='eod0'?'on':''} onClick={()=>setEndOfDay(0)}>{t("Bugun 23:59")}</button>
+        <button type="button" className={presetKey==='eod1'?'on':''} onClick={()=>setEndOfDay(1)}>{t("Ertaga 23:59")}</button>
+        {value&&<button type="button" onClick={()=>{emit('');setDur({d:'0',h:'0',m:'0'});setPresetKey('')}}>✕ {t("Vaqtsiz")}</button>}
+      </div>
+    </>}
+
+    {validFuture?<div className="tp-preview">
+      <span>📅 <b>{fmtDt(value)}</b></span>
+      <Countdown until={value} mode="inline"/>
+    </div>:isPast?<div className="tp-preview warn">
+      <span>⚠️ {t("O'tgan vaqt kiritilgan")}</span>
+    </div>:<div className="tp-preview" style={{color:'var(--m)'}}>
+      <span>∞ {t("Muddatsiz aksiya")}</span>
+    </div>}
+  </>
+}
+
 function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
-  const {t,cn}=useLang()
+  const {t,so,cn}=useLang()
   const set=k=>e=>setF({...f,[k]:e.target.value})
+  const pr=Number(f.price)||0,sp=Number(f.sale_price)||0
+  const pct=pr>0&&sp>0&&sp<pr?Math.max(1,Math.round((1-sp/pr)*100)):0
   return <>
     <input className="in" placeholder="Название (русский)" value={f.name} onChange={set('name')}/>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name_uz||''} onChange={set('name_uz')}/>
@@ -1070,14 +1240,8 @@ function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
         {(f.sale_price||f.sale_until)&&<button type="button" className="sec-link" style={{fontSize:11.5}} onClick={()=>setF({...f,sale_price:'',sale_until:''})}>{t("Tozalash")}</button>}
       </div>
       <input className="in" type="text" inputMode="numeric" placeholder={`${t("Aksiya narxi")} (masalan: 15000)`} value={f.sale_price||''} onChange={e=>setF({...f,sale_price:digits(e.target.value)})}/>
-      {Number(f.sale_price)>0&&<>
-        <div className="chips" style={{paddingBottom:6}}>
-          {[[1,'1 kun'],[3,'3 kun'],[7,'7 kun'],[30,'30 kun']].map(([days,lbl])=><button key={days} type="button" className="chip" style={{padding:'5px 10px',fontSize:11.5}} onClick={()=>setF({...f,sale_until:addDaysLocal(days)})}>+{lbl}</button>)}
-        </div>
-        <label className="m">{t("Tugash vaqti")}
-          <input className="in" style={{marginTop:4,marginBottom:0}} type="datetime-local" value={f.sale_until||''} onChange={e=>setF({...f,sale_until:e.target.value})}/>
-        </label>
-      </>}
+      {pct>0&&<div className="sale-save-pill">🏷️ <s>{so(pr)}</s> → <b>{so(sp)}</b> <span>(−{pct}%)</span></div>}
+      {sp>0&&<SaleTimePicker value={f.sale_until||''} onChange={v=>setF({...f,sale_until:v})}/>}
     </div>
     {f.unit==='weight'&&<input className="in" type="text" inputMode="numeric" placeholder="Minimal gramm (masalan 250). Bo'sh = summa bilan sotiladi" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>}
     <div className="gap">
@@ -1110,7 +1274,7 @@ function Products({d,act}){
   const load=useCallback((n,reset)=>api(`/api/admin/products?q=${encodeURIComponent(dq)}&state=${st}&cat=${encodeURIComponent(cat)}&page=${n}`).then(r=>{setList(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)}).catch(()=>{}),[dq,st,cat])
   useEffect(()=>{load(0,true)},[load,ver])
 
-  const prepPayload=obj=>({...obj,sale_price:obj.sale_price?Number(obj.sale_price):null,sale_until:obj.sale_price&&obj.sale_until?new Date(obj.sale_until).toISOString():null})
+  const prepPayload=obj=>{const dt=obj.sale_until?new Date(obj.sale_until):null;return {...obj,sale_price:obj.sale_price?Number(obj.sale_price):null,sale_until:obj.sale_price&&dt&&!Number.isNaN(dt.getTime())?dt.toISOString():null}}
   const pickFor=setter=>async e=>{const file=e.target.files[0];if(!file)return;try{const u=await upload(file);setter(x=>({...x,image:u}))}catch(er){alert(er.message)}}
   const saveNew=()=>go(async()=>{await api('/api/products','POST',prepPayload(f));setF({...e0,category:cat||e0.category});setAddOpen(false)},dept?'Adminga tasdiqlash uchun yuborildi':'Saqlandi')
   const saveEdit=()=>act(async()=>{
@@ -1165,7 +1329,7 @@ function Products({d,act}){
             <div className="m">
               {p.category} · {onS?<><s style={{marginRight:4}}>{so(p.price)}</s><b style={{color:'var(--b)'}}>{so(p.sale_price)} 🔥</b></>:so(p.price)}{p.unit==='weight'?' / kg':''}{p.barcode?` · #${p.barcode}`:''}
             </div>
-            {onS&&p.sale_until&&<div style={{marginTop:3}}><Countdown until={p.sale_until} cls="badge red"/></div>}
+            {onS&&p.sale_until&&<div style={{marginTop:3}}><Countdown until={p.sale_until} mode="inline"/></div>}
           </div>
           <span className="row-acts">
             {!dept&&<label className="sw"><input type="checkbox" checked={p.active} onChange={e=>{

@@ -90,7 +90,6 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .bp{display:flex;align-items:baseline;gap:6px;margin-top:4px}
 .bp s{color:var(--m);font-size:11px}
 .bp span{font-weight:800;color:var(--b);font-size:15px}
-.disc{position:absolute;right:8px;top:8px;background:var(--b);color:#fff;font-size:11px;font-weight:800;padding:3px 7px;border-radius:99px}
 
 /* Korzinka Go-style Category Grid */
 .cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
@@ -122,7 +121,7 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .prod{padding:0;margin:0;overflow:hidden;display:flex;flex-direction:column;transition:transform .14s}
 .prod:active{transform:scale(.98)}
 .img{aspect-ratio:1/1;background:#F3F4F6 center/cover no-repeat;position:relative;display:grid;place-items:center;border-radius:18px 18px 0 0;overflow:hidden}
-.img span{font-size:48px;opacity:.92}
+.img span.emo{font-size:48px;opacity:.92;line-height:1}
 .img:not([style*="url"]){background:linear-gradient(145deg,#FFF1F2,#F3F4F6)}
 .pbody{padding:9px 10px 10px;display:flex;flex-direction:column;flex:1;gap:4px}
 .price{font-size:16px;font-weight:800;color:var(--t);letter-spacing:-.02em;line-height:1.15}
@@ -214,14 +213,14 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 /* Detail Sheet */
 .det{padding-bottom:22px}
 .dimg{aspect-ratio:4/3;border-radius:18px;background:#FFF1F2 center/cover no-repeat;display:grid;place-items:center;position:relative;overflow:hidden}
-.dimg span{font-size:74px}
+.dimg span.emo{font-size:74px;line-height:1}
 .dprice{font-size:24px;font-weight:800;color:var(--b);letter-spacing:-.02em}
 .dprice small{color:var(--m);font-size:14px;font-weight:500}
 
 /* Misc */
 .ci{width:44px;height:44px;border-radius:12px;background:#FFF1F2 center/cover no-repeat;display:grid;place-items:center;font-size:22px;flex:none;position:relative}
 .ci.sm{width:42px;height:42px;font-size:18px;border-radius:11px}
-.ci span{font-size:20px}
+.ci span.emo{font-size:20px;line-height:1}
 .prof{display:flex;gap:14px;align-items:center;margin:6px 0 14px}
 .av{width:58px;height:58px;border-radius:18px;background:var(--b);color:#fff;font-size:24px;font-weight:800;display:grid;place-items:center;box-shadow:0 6px 16px rgba(225,29,72,.24)}
 .sw{position:relative;display:inline-block;width:44px;height:26px}
@@ -344,17 +343,59 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .row-txt{flex:1;min-width:0;word-break:break-word;line-height:1.35}
 .row-acts{display:flex;gap:6px;flex-wrap:nowrap;flex:none;align-items:center}
 
-/* Product Sales & Live Countdown Timer */
+/* Product Sales & Modern Live Countdown Timer */
 .price-wrap{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
 .price.sale{color:var(--b)}
 .price-old{font-size:12px;color:var(--m);text-decoration:line-through;font-weight:600}
-.sale-timer{position:absolute;left:7px;bottom:7px;background:rgba(17,24,39,.84);backdrop-filter:blur(6px);color:#fff;font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:8px;letter-spacing:.01em;font-variant-numeric:tabular-nums}
-.sale-timer-lg{display:inline-flex;align-items:center;gap:5px;background:var(--b50);color:var(--b7);border:1px solid var(--b100);font-size:12.5px;font-weight:800;padding:5px 10px;border-radius:10px;font-variant-numeric:tabular-nums}
+.disc{position:absolute;right:8px;top:8px;background:linear-gradient(135deg,#E11D48,#F43F5E);color:#fff;font-size:11px;font-weight:800;line-height:1.1;padding:4px 8px;border-radius:99px;letter-spacing:-.01em;box-shadow:0 3px 10px rgba(225,29,72,.35);z-index:2}
+.sale-timer{position:absolute;left:7px;bottom:7px;max-width:calc(100% - 14px);display:inline-flex;align-items:center;gap:5px;background:rgba(17,24,39,.78);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);color:#fff;font-size:10.5px;font-weight:800;line-height:1.1;padding:4px 8px;border-radius:99px;letter-spacing:.02em;font-variant-numeric:tabular-nums;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.22);z-index:2}
+.st-dot{width:6px;height:6px;border-radius:99px;background:#FB7185;box-shadow:0 0 8px #FB7185;flex:none;animation:st-pulse 1.3s ease-in-out infinite}
+@keyframes st-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+
+/* Modern Segmented Digital Countdown (Product Detail & Preview) */
+.cd-card{background:linear-gradient(135deg,#FFF1F2 0%,#FFE4E6 100%);border:1px solid #FECDD3;border-radius:16px;padding:10px 12px;margin:10px 0 4px}
+.cd-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:11.5px;font-weight:800;color:var(--b7);letter-spacing:.01em}
+.cd-grid{display:flex;align-items:center;gap:6px}
+.cd-unit{flex:1;background:#fff;border:1px solid rgba(225,29,72,.14);border-radius:12px;padding:7px 4px;text-align:center;box-shadow:0 2px 6px rgba(225,29,72,.06)}
+.cd-unit b{display:block;font-size:18px;font-weight:800;line-height:1.1;color:var(--b7);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.cd-unit small{display:block;font-size:9.5px;font-weight:700;color:var(--m);text-transform:uppercase;margin-top:2px;letter-spacing:.03em}
+.cd-sep{font-size:16px;font-weight:800;color:#FB7185;line-height:1;padding-bottom:10px}
+.sale-timer-inline{display:inline-flex;align-items:center;gap:4px;background:var(--b50);color:var(--b7);border:1px solid var(--b100);font-size:11px;font-weight:800;padding:2px 7px;border-radius:99px;font-variant-numeric:tabular-nums}
+
 .sale-hero{background:linear-gradient(135deg,#E11D48 0%,#FB7185 100%);color:#fff;border-radius:22px;padding:16px 18px;margin-bottom:12px;box-shadow:0 10px 24px rgba(225,29,72,.26)}
 .sale-hero h1{margin:0;font-size:20px;color:#fff}
 .sale-hero p{margin:4px 0 0;font-size:13px;opacity:.92}
-.sale-box{background:#FFF7F8;border:1px solid var(--b100);border-radius:14px;padding:10px;margin-bottom:8px}
-.sale-box-t{font-size:12.5px;font-weight:800;color:var(--b7);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between}
+
+/* Modern Custom Sale Time & Duration Picker */
+.sale-box{background:linear-gradient(180deg,#FFF8F9 0%,#FFF1F2 100%);border:1px solid #FECDD3;border-radius:16px;padding:12px;margin-bottom:10px}
+.sale-box-t{font-size:13px;font-weight:800;color:var(--b7);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sale-save-pill{display:inline-flex;align-items:center;gap:5px;background:#fff;border:1px solid #FECDD3;color:var(--b7);font-size:11.5px;font-weight:800;padding:4px 9px;border-radius:99px;margin:-2px 0 8px}
+.tp-tabs{display:flex;background:rgba(225,29,72,.08);border-radius:12px;padding:3px;gap:3px;margin:8px 0 10px}
+.tp-tabs button{flex:1;border:0;background:none;border-radius:9px;padding:7px 8px;font-size:12px;font-weight:700;color:var(--b7);transition:all .14s}
+.tp-tabs button.on{background:#fff;color:var(--b);box-shadow:0 2px 6px rgba(225,29,72,.14)}
+.tp-dur-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.tp-box{background:#fff;border:1.5px solid #FECDD3;border-radius:14px;padding:7px 6px 8px;text-align:center;transition:border-color .14s,box-shadow .14s}
+.tp-box:focus-within{border-color:var(--b);box-shadow:0 0 0 3px rgba(225,29,72,.12)}
+.tp-box label{display:block;font-size:10px;font-weight:800;color:var(--m);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.tp-ctrl{display:flex;align-items:center;justify-content:space-between;gap:2px}
+.tp-ctrl button{width:24px;height:28px;border:0;border-radius:8px;background:var(--b50);color:var(--b7);font-size:15px;font-weight:800;display:grid;place-items:center;flex:none}
+.tp-ctrl button:active{transform:scale(.92)}
+.tp-ctrl input{width:100%;min-width:0;border:0;background:transparent;text-align:center;font-size:17px;font-weight:800;color:var(--t);outline:none;font-variant-numeric:tabular-nums;padding:0}
+.tp-exact{display:grid;grid-template-columns:1.35fr 1fr;gap:8px;margin-bottom:10px}
+.tp-group{background:#fff;border:1.5px solid #FECDD3;border-radius:14px;padding:7px 8px 8px;transition:border-color .14s,box-shadow .14s}
+.tp-group:focus-within{border-color:var(--b);box-shadow:0 0 0 3px rgba(225,29,72,.12)}
+.tp-group>span{display:block;font-size:10px;font-weight:800;color:var(--m);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.tp-parts{display:flex;align-items:center;gap:2px}
+.tp-parts input{width:100%;min-width:0;border:0;background:#F9FAFB;border-radius:8px;padding:6px 2px;text-align:center;font-size:14.5px;font-weight:800;color:var(--t);outline:none;font-variant-numeric:tabular-nums}
+.tp-parts input:focus{background:var(--b50);color:var(--b7)}
+.tp-parts i{font-style:normal;font-weight:800;color:var(--m);font-size:14px;padding:0 1px}
+.tp-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.tp-presets button{border:1px solid #FECDD3;background:#fff;color:var(--b7);border-radius:99px;padding:5px 10px;font-size:11.5px;font-weight:700;transition:all .12s}
+.tp-presets button:active{transform:scale(.95)}
+.tp-presets button.on{background:var(--b);border-color:var(--b);color:#fff}
+.tp-preview{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fff;border:1px solid rgba(225,29,72,.16);border-radius:12px;padding:8px 10px;font-size:12px}
+.tp-preview.warn{background:#FFFBEB;border-color:#FDE68A;color:#B45309}
+.tp-preview b{font-variant-numeric:tabular-nums;color:var(--b7)}
 
 /* TEGEN Red Discount Card (2% Cashback) */
 .dcard{background:linear-gradient(135deg,#E11D48 0%,#BE123C 100%);color:#fff;border-radius:22px;padding:16px;margin-bottom:12px;box-shadow:0 12px 28px rgba(225,29,72,.28);position:relative;overflow:hidden}
