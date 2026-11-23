@@ -274,15 +274,14 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .preset-card span{font-size:22px;line-height:1}
 .preset-card b{display:block;font-size:12.5px;font-weight:700}
 
-/* 10-second Festive Background Animation Overlay */
-.festive{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:35;animation:festive-in .6s ease forwards;transition:opacity 1.6s ease}
-.festive.fading{opacity:0}
-.festive-glow{position:absolute;left:-10%;right:-10%;top:-40px;height:210px;filter:blur(28px);opacity:.65}
-.festive.newyear .festive-glow{background:radial-gradient(ellipse at 25% 0%,rgba(56,189,248,.38),transparent 65%),radial-gradient(ellipse at 75% 0%,rgba(225,29,72,.30),transparent 65%),radial-gradient(ellipse at 50% 0%,rgba(250,204,21,.28),transparent 70%)}
-.festive.navruz .festive-glow{background:radial-gradient(ellipse at 30% 0%,rgba(244,114,182,.32),transparent 65%),radial-gradient(ellipse at 70% 0%,rgba(52,211,153,.30),transparent 65%),radial-gradient(ellipse at 50% 0%,rgba(253,224,71,.28),transparent 70%)}
-.festive.ramazon .festive-glow{background:radial-gradient(ellipse at 50% 0%,rgba(245,158,11,.36),transparent 68%),radial-gradient(ellipse at 20% 0%,rgba(99,102,241,.24),transparent 60%)}
-.festive.autumn .festive-glow{background:radial-gradient(ellipse at 35% 0%,rgba(249,115,22,.32),transparent 65%),radial-gradient(ellipse at 75% 0%,rgba(234,179,8,.28),transparent 65%)}
-.festive.confetti .festive-glow{background:radial-gradient(ellipse at 25% 0%,rgba(225,29,72,.28),transparent 65%),radial-gradient(ellipse at 55% 0%,rgba(250,204,21,.30),transparent 65%),radial-gradient(ellipse at 85% 0%,rgba(59,130,246,.28),transparent 65%)}
+/* Continuous Festive Background Animation Overlay */
+.festive{position:fixed;inset:0;pointer-events:none;overflow:hidden;z-index:35;animation:festive-in .6s ease forwards}
+.festive-glow{position:absolute;left:-10%;right:-10%;top:-40px;height:190px;filter:blur(28px);opacity:.58}
+.festive.newyear .festive-glow{background:radial-gradient(ellipse at 25% 0%,rgba(56,189,248,.34),transparent 65%),radial-gradient(ellipse at 75% 0%,rgba(225,29,72,.26),transparent 65%),radial-gradient(ellipse at 50% 0%,rgba(250,204,21,.24),transparent 70%)}
+.festive.navruz .festive-glow{background:radial-gradient(ellipse at 30% 0%,rgba(244,114,182,.30),transparent 65%),radial-gradient(ellipse at 70% 0%,rgba(52,211,153,.28),transparent 65%),radial-gradient(ellipse at 50% 0%,rgba(253,224,71,.24),transparent 70%)}
+.festive.ramazon .festive-glow{background:radial-gradient(ellipse at 50% 0%,rgba(245,158,11,.32),transparent 68%),radial-gradient(ellipse at 20% 0%,rgba(99,102,241,.22),transparent 60%)}
+.festive.autumn .festive-glow{background:radial-gradient(ellipse at 35% 0%,rgba(249,115,22,.30),transparent 65%),radial-gradient(ellipse at 75% 0%,rgba(234,179,8,.26),transparent 65%)}
+.festive.confetti .festive-glow{background:radial-gradient(ellipse at 25% 0%,rgba(225,29,72,.26),transparent 65%),radial-gradient(ellipse at 55% 0%,rgba(250,204,21,.28),transparent 65%),radial-gradient(ellipse at 85% 0%,rgba(59,130,246,.26),transparent 65%)}
 .festive-garland{position:absolute;top:0;left:0;right:0;height:14px;display:flex;justify-content:space-around;align-items:center;padding:0 8px}
 .festive-garland i{width:7px;height:7px;border-radius:99px;display:block;animation:twinkle 1.4s ease-in-out infinite alternate}
 .festive-garland i:nth-child(3n){background:#FACC15;box-shadow:0 0 10px #FACC15;animation-delay:.2s}
@@ -293,8 +292,8 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 @keyframes twinkle{from{opacity:.4;transform:scale(.85)}to{opacity:1;transform:scale(1.15)}}
 @keyframes festive-fall{
   0%{transform:translate3d(0,-10px,0) rotate(0deg);opacity:0}
-  12%{opacity:var(--op,.9)}
-  82%{opacity:var(--op,.85)}
+  12%{opacity:var(--op,.58)}
+  82%{opacity:var(--op,.52)}
   100%{transform:translate3d(var(--drift),105vh,0) rotate(var(--rot));opacity:0}
 }
 @media(prefers-reduced-motion:reduce){.festive{display:none}}
@@ -306,5 +305,40 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .chips.sub{padding-top:0;margin-top:-4px}
 .chips.sub .chip{padding:5px 11px;font-size:12px;background:#F9FAFB}
 .chips.sub .chip.on{background:var(--t);color:#fff;border-color:var(--t);box-shadow:none}
+
+/* Modern Customer Profile */
+.prof-hero{padding:16px;position:relative;overflow:hidden}
+.prof-top{display:flex;align-items:center;gap:14px}
+.av-pic{width:60px;height:60px;border-radius:20px;object-fit:cover;flex:none;box-shadow:0 6px 16px rgba(17,24,39,.14)}
+.prof-meta{min-width:0;flex:1}
+.prof-meta b{display:block;font-size:19px;font-weight:800;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prof-meta .m{font-size:13px;margin-top:2px}
+.prof-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.prof-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid #F1F2F5}
+.pstat{background:#F8F9FB;border-radius:14px;padding:10px 8px;text-align:center}
+.pstat span{display:block;font-size:11px;color:var(--m);font-weight:600}
+.pstat b{display:block;font-size:14.5px;font-weight:800;color:var(--t);margin-top:3px;letter-spacing:-.02em}
+.pstat.hi b{color:var(--b)}
+
+.oh-card{padding:12px 14px;cursor:pointer;transition:transform .12s}
+.oh-card:active{transform:scale(.99)}
+.oh-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.oh-sub{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;font-size:13px}
+.oh-items{margin-top:10px;padding-top:10px;border-top:1px solid #F3F4F6}
+.oh-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:13px}
+
+.menu-card{padding:6px 14px}
+.menu-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #F3F4F6;cursor:pointer}
+.menu-row:last-child{border-bottom:0}
+.menu-l{display:flex;align-items:center;gap:11px;min-width:0}
+.menu-ico{width:36px;height:36px;border-radius:11px;background:var(--b50);display:grid;place-items:center;font-size:17px;flex:none}
+.menu-l b{display:block;font-size:14px;font-weight:700}
+.menu-l small{display:block;font-size:11.5px;color:var(--m)}
+
+.addr-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #F3F4F6}
+.addr-row:last-child{border-bottom:0}
+.addr-pick{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}
+.addr-pick::-webkit-scrollbar{display:none}
+
 
 
