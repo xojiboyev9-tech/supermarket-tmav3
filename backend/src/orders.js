@@ -13,11 +13,15 @@ async function deliveryFee(subtotal,pt){
 }
 exports.deliveryFee=deliveryFee;
 const effPrice=p=>(p.sale_price&&p.sale_price>0&&p.sale_price<p.price&&(!p.sale_until||new Date(p.sale_until)>new Date()))?p.sale_price:p.price;
+const normPhone=raw=>{const d=String(raw||'').replace(/\D/g,'');if(!d)return null;const f=d.length===9?'998'+d:d;return f.length>=9&&f.length<=15?f:null};
+exports.normPhone=normPhone;
 exports.createOrder=async(me,b)=>{
  if(!Array.isArray(b.items)||!b.items.length||b.items.length>60)throw bad("Savat bo'sh");
- if(!me.phone)throw bad('Avval botda telefon raqamni yuboring');
+ const phone=me.phone||normPhone(b.phone);
+ if(!phone)throw bad('Buyurtma berish uchun telefon raqamingizni kiriting');
  const wh=(await getSetting('warehouse')).enabled,c=await pool.connect();
  try{await c.query('begin');const lines=[];let subtotal=0,age=0;
+  if(!me.phone)await c.query('update users set phone=$1 where tg_id=$2',[phone,me.tg_id]);
   for(const it of b.items){
    if(it.bundleId){const bd=(await c.query("select b.*,(select string_agg(p.name||' ×'||bi.qty::text,', ') from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id) comp from bundles b where id=$1 and active",[Number(it.bundleId)])).rows[0];if(!bd)throw bad('Nabor topilmadi');const bq=Number(it.qty);if(!Number.isInteger(bq)||bq<1||bq>20)throw bad("Nabor soni noto'g'ri");subtotal+=bd.price*bq;lines.push([{id:null,name:'🎁 '+bd.title+(bd.comp?' ('+bd.comp+')':''),unit:'piece',price:bd.price},bq,bd.price*bq]);continue}
    const p=(await c.query('select * from products where id=$1 and active for update',[Number(it.productId??it.id)])).rows[0];
@@ -31,7 +35,7 @@ exports.createOrder=async(me,b)=>{
   if(b.type==='delivery'){const dv=await getSetting('delivery');if(!dv.enabled)throw bad("Yetkazib berish hozir o'chirilgan");if(subtotal<(dv.minTotal||0))throw bad(`Yetkazib berish ${(dv.minTotal||0).toLocaleString('ru-RU')} so'mdan boshlanadi`);if(String(b.address||'').trim().length<5)throw bad('Manzilni yozing');type='delivery'}
   const code=String(1000+Math.floor(Math.random()*9000));
   const cardNum=me.card_status==='active'&&me.card_number?me.card_number:null;
-  const o=(await c.query('insert into orders(code,user_id,name,phone,type,address,lat,lng,delivery_fee,subtotal,total,card_number) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10::int+$9::int,$11) returning *',[code,me.tg_id,me.name,me.phone,type,String(b.address||'').slice(0,300),b.lat||null,b.lng||null,fee,subtotal,cardNum])).rows[0];
+  const o=(await c.query('insert into orders(code,user_id,name,phone,type,address,lat,lng,delivery_fee,subtotal,total,card_number) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10::int+$9::int,$11) returning *',[code,me.tg_id,me.name,phone,type,String(b.address||'').slice(0,300),b.lat||null,b.lng||null,fee,subtotal,cardNum])).rows[0];
   for(const [p,qty,sum] of lines)await c.query('insert into order_items(order_id,product_id,name,unit,unit_price,qty,ordered_sum) values($1,$2,$3,$4,$5,$6,$7)',[o.id,p.id,p.name,p.unit,p.price,qty,sum]);
   if(age>0){await c.query("update orders set status='age_check' where id=$1",[o.id]);o.status='age_check'}
   await c.query('commit');await audit(me.tg_id,'order.create','order:'+o.id,{total:o.total,age,card:cardNum});

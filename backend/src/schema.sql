@@ -54,4 +54,20 @@ alter table users add column if not exists card_address text;
 alter table users add column if not exists card_applied_at timestamptz;
 alter table orders add column if not exists card_number text;
 insert into settings values('support','{"username":"","phone":""}') on conflict do nothing;
+alter table users add column if not exists can_broadcast boolean default false;
+create table if not exists broadcasts(
+  id serial primary key,
+  sender_id bigint not null,
+  sender_name text,
+  kind text not null default 'text',
+  text text,
+  target text not null default 'all',
+  total int not null default 0,
+  sent int not null default 0,
+  failed int not null default 0,
+  status text not null default 'sending',
+  created_at timestamptz default now(),
+  finished_at timestamptz
+);
+
 
