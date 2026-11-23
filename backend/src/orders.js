@@ -63,14 +63,15 @@ exports.confirm=async(userId,id,yes)=>{
  await audit(userId,yes?'order.confirm_price':'order.reject_price','order:'+id);N.confirmDone(o,yes);
 };
 exports.saveProduct=async(me,body,id)=>{
- const d={name:String(body.name||'').trim().slice(0,120),price:Math.round(Number(body.price)),unit:body.unit==='weight'?'weight':'piece',image:body.image||null,category:body.category,name_uz:String(body.name_uz||'').trim().slice(0,120)||null,description:String(body.description||'').slice(0,600)||null,min_grams:Math.max(0,Math.min(5000,Math.round(Number(body.min_grams))||0)),age_min:Math.max(0,Math.min(99,Math.round(Number(body.age_min))||0))};
+ const d={name:String(body.name||'').trim().slice(0,120),price:Math.round(Number(body.price)),unit:body.unit==='weight'?'weight':'piece',image:body.image||null,category:body.category,name_uz:String(body.name_uz||'').trim().slice(0,120)||null,description:String(body.description||'').slice(0,600)||null,min_grams:Math.max(0,Math.min(5000,Math.round(Number(body.min_grams))||0)),age_min:Math.max(0,Math.min(99,Math.round(Number(body.age_min))||0)),barcode:String(body.barcode||'').trim().slice(0,64)||null};
  if(!d.name||!(d.price>0))throw bad("Nom va narx noto'g'ri");
  if(me.role==='worker'){d.category=me.department;
   const r=(await q("insert into pending_changes(action,product,worker_id,worker_name,department) values($1,$2,$3,$4,$5) returning *",[id?'edit':'add',{...d,id},me.tg_id,me.name,me.department])).rows[0];
   await audit(me.tg_id,'product.request','change:'+r.id,d);N.pending(r);return{pending:true}}
- if(id)await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),category=$5,age_min=$7,name_uz=$8,description=$9,min_grams=$10 where id=$6',[d.name,d.price,d.unit,d.image,d.category,id,d.age_min,d.name_uz,d.description,d.min_grams]);
- else id=(await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id',[d.name,d.price,d.unit,d.image,d.category,d.age_min,d.name_uz,d.description,d.min_grams])).rows[0].id;
- await audit(me.tg_id,id?'product.save':'product.add','product:'+id,d);return{id};
+ const isEdit=!!id;
+ if(isEdit)await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),category=$5,age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11 where id=$6',[d.name,d.price,d.unit,d.image,d.category,id,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode]);
+ else id=(await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id',[d.name,d.price,d.unit,d.image,d.category,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode])).rows[0].id;
+ await audit(me.tg_id,isEdit?'product.save':'product.add','product:'+id,d);return{id};
 };
 exports.deleteProduct=async(me,id)=>{
  const p=(await q('select * from products where id=$1',[id])).rows[0];if(!p)throw bad('Topilmadi');
@@ -81,8 +82,8 @@ exports.deleteProduct=async(me,id)=>{
 exports.resolveChange=async(actor,id,ok)=>{
  const r=(await q('delete from pending_changes where id=$1 returning *',[id])).rows[0];if(!r)throw bad("So'rov topilmadi");
  if(ok){const p=r.product;
-  if(r.action==='add')await q('insert into products(name,price,unit,image,category) values($1,$2,$3,$4,$5)',[p.name,p.price,p.unit,p.image,p.category]);
-  else if(r.action==='edit')await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image) where id=$5 and category=$6',[p.name,p.price,p.unit,p.image,p.id,r.department]);
+  if(r.action==='add')await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[p.name,p.price,p.unit,p.image,p.category,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null]);
+  else if(r.action==='edit')await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11 where id=$5 and category=$6',[p.name,p.price,p.unit,p.image,p.id,r.department,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null]);
   else await q('update products set active=false where id=$1 and category=$2',[p.id,r.department])}
  await audit(actor,ok?'change.approve':'change.reject','change:'+id,r.product);N.changeResolved(r,ok);
 };
