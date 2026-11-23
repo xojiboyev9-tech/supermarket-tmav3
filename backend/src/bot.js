@@ -81,13 +81,19 @@ const menu=async(ctx,u)=>{
 
 /* Broadcast state & delivery engine */
 const bcDraft=new Map();
+const bcSent=new Set();
+const bk=id=>String(id);
+const KMAP={t:'text',p:'photo',v:'video'};
 const bcCounts=async()=>(await q("select count(*)::int all_c,count(*) filter(where coalesce(lang,'uz')<>'ru')::int uz_c,count(*) filter(where lang='ru')::int ru_c from users")).rows[0];
-const bcConfirmKb=(cnt,withBtn)=>Markup.inlineKeyboard([
- [Markup.button.callback(`✅ Barchaga yuborish (${cnt.all_c})`,'bc:go:all')],
- [Markup.button.callback(`🇺🇿 O'zbekcha (${cnt.uz_c})`,'bc:go:uz'),Markup.button.callback(`🇷🇺 Ruscha (${cnt.ru_c})`,'bc:go:ru')],
- [Markup.button.callback(`🛒 Do'kon tugmasi: ${withBtn?'✅ Ha':'❌ Yo\'q'}`,'bc:btn')],
- [Markup.button.callback('❌ Bekor qilish','bc:cancel')]
-]);
+const bcConfirmKb=(cnt,withBtn,msgId,kind='text')=>{
+ const wb=withBtn?1:0,kc=kind==='video'?'v':kind==='photo'?'p':'t';
+ return Markup.inlineKeyboard([
+  [Markup.button.callback(`✅ Barchaga yuborish (${cnt.all_c})`,`bc:go:all:${msgId}:${wb}:${kc}`)],
+  [Markup.button.callback(`🇺🇿 O'zbekcha (${cnt.uz_c})`,`bc:go:uz:${msgId}:${wb}:${kc}`),Markup.button.callback(`🇷🇺 Ruscha (${cnt.ru_c})`,`bc:go:ru:${msgId}:${wb}:${kc}`)],
+  [Markup.button.callback(`🛒 Do'kon tugmasi: ${withBtn?'✅ Ha':"❌ Yo'q"}`,`bc:btn:${msgId}:${wb}:${kc}`)],
+  [Markup.button.callback('❌ Bekor qilish','bc:cancel')]
+ ]);
+};
 async function runBroadcast({sender,target='all',kind='text',text='',mediaUrl='',preview='',withBtn=true,fromChatId=null,fromMsgId=null}){
  const tClean=['all','uz','ru'].includes(target)?target:'all';
  const where=tClean==='ru'?"where lang='ru'":tClean==='uz'?"where coalesce(lang,'uz')<>'ru'":'';
@@ -150,11 +156,11 @@ bot.command('lang',async ctx=>askLang(ctx));
 const startBcPrompt=async ctx=>{
  const u=await me(ctx.from.id);
  if(!canBroadcast(u))return ctx.reply("🚫 Sizda xabar yuborish ruxsati yo'q.");
- bcDraft.set(u.tg_id,{step:'await',withBtn:true});
+ bcDraft.set(bk(ctx.from.id),{step:'await',withBtn:true});
  return ctx.reply("📣 <b>Xabar yuborish (Yangiliklar)</b>\n\nBarcha foydalanuvchilarga yuboriladigan xabarni hozir yuboring:\n• 📝 Matn\n• 🖼 Rasm (+ matn)\n• 🎬 Video (+ matn) yoki GIF\n\nBekor qilish: /cancel",{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('❌ Bekor qilish','bc:cancel')]])});
 };
 bot.command('broadcast',startBcPrompt);
-bot.command('cancel',async ctx=>{if(bcDraft.delete(ctx.from.id))return ctx.reply('❌ Xabar yuborish bekor qilindi.')});
+bot.command('cancel',async ctx=>{if(bcDraft.delete(bk(ctx.from.id)))return ctx.reply('❌ Xabar yuborish bekor qilindi.')});
 
 const guard=fn=>async ctx=>{try{await fn(ctx)}catch(e){ctx.answerCbQuery(e.message,{show_alert:true}).catch(()=>{})}};
 bot.action(/^lang:(uz|ru)$/,guard(async ctx=>{
@@ -173,26 +179,42 @@ bot.action('bc:start',guard(async ctx=>{
  return startBcPrompt(ctx);
 }));
 bot.action('bc:cancel',guard(async ctx=>{
- bcDraft.delete(ctx.from.id);
+ bcDraft.delete(bk(ctx.from.id));
  await ctx.answerCbQuery('Bekor qilindi').catch(()=>{});
  await ctx.editMessageText('❌ Xabar yuborish bekor qilindi.').catch(()=>{});
 }));
-bot.action('bc:btn',guard(async ctx=>{
- const u=await me(ctx.from.id),d=bcDraft.get(ctx.from.id);
- if(!canBroadcast(u)||!d||d.step!=='confirm')return ctx.answerCbQuery("Xabar topilmadi");
- d.withBtn=!d.withBtn;
- const cnt=await bcCounts();
- await ctx.editMessageReplyMarkup(bcConfirmKb(cnt,d.withBtn).reply_markup).catch(()=>{});
- await ctx.answerCbQuery(d.withBtn?"Do'kon tugmasi yoqildi":"Do'kon tugmasi o'chirildi").catch(()=>{});
-}));
-bot.action(/^bc:go:(all|uz|ru)$/,guard(async ctx=>{
- const u=await me(ctx.from.id),d=bcDraft.get(ctx.from.id);
+bot.action(/^bc:btn(?::(\d+):([01]):([tpv]))?$/,guard(async ctx=>{
+ const u=await me(ctx.from.id);
  if(!canBroadcast(u))return ctx.answerCbQuery("Ruxsat yo'q",{show_alert:true});
- if(!d||d.step!=='confirm')return ctx.answerCbQuery("Avval xabarni yuboring",{show_alert:true});
+ const d=bcDraft.get(bk(ctx.from.id));
+ const msgId=ctx.match[1]?Number(ctx.match[1]):d?.msgId;
+ if(!msgId)return ctx.answerCbQuery("Xabar topilmadi",{show_alert:true});
+ const curBtn=ctx.match[2]!=null?ctx.match[2]==='1':Boolean(d?.withBtn);
+ const nextBtn=!curBtn;
+ const kind=KMAP[ctx.match[3]]||d?.kind||'text';
+ if(d)d.withBtn=nextBtn;
+ const cnt=await bcCounts();
+ await ctx.editMessageReplyMarkup(bcConfirmKb(cnt,nextBtn,msgId,kind).reply_markup).catch(()=>{});
+ await ctx.answerCbQuery(nextBtn?"Do'kon tugmasi yoqildi":"Do'kon tugmasi o'chirildi").catch(()=>{});
+}));
+bot.action(/^bc:go:(all|uz|ru)(?::(\d+):([01]):([tpv]))?$/,guard(async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canBroadcast(u))return ctx.answerCbQuery("Ruxsat yo'q",{show_alert:true});
+ const key=bk(ctx.from.id),d=bcDraft.get(key);
  const target=ctx.match[1];
- bcDraft.delete(ctx.from.id);
+ const msgId=ctx.match[2]?Number(ctx.match[2]):d?.msgId;
+ const chatId=ctx.chat?.id||d?.chatId;
+ if(!msgId||!chatId)return ctx.answerCbQuery("Avval /broadcast bosib xabarni yuboring",{show_alert:true});
+ const sentKey=`${chatId}:${msgId}`;
+ if(bcSent.has(sentKey))return ctx.answerCbQuery("Bu xabar allaqachon yuborilgan",{show_alert:true});
+ bcSent.add(sentKey);
+ if(bcSent.size>200)bcSent.delete(bcSent.values().next().value);
+ const withBtn=ctx.match[3]!=null?ctx.match[3]==='1':(d?d.withBtn:true);
+ const kind=KMAP[ctx.match[4]]||d?.kind||'text';
+ const preview=d?.preview||'';
+ bcDraft.delete(key);
  await ctx.answerCbQuery('🚀 Yuborish boshlandi!').catch(()=>{});
- const r=await runBroadcast({sender:u,target,kind:d.kind,preview:d.preview,withBtn:d.withBtn,fromChatId:d.chatId,fromMsgId:d.msgId});
+ const r=await runBroadcast({sender:u,target,kind,preview,withBtn,fromChatId:chatId,fromMsgId:msgId});
  await ctx.editMessageText(`🚀 <b>Xabar yuborish boshlandi!</b> (#${r.id})\n👥 Qabul qiluvchilar: <b>${r.total}</b> ta\nYakunlangach hisobot yuboriladi.`,{parse_mode:'HTML'}).catch(()=>{});
 }));
 
@@ -214,15 +236,17 @@ bot.action(/^e:(ok|no):(\d+)$/,guard(async ctx=>{const u=await me(ctx.from.id);i
 bot.action(/^p:(ok|no):(\d+)$/,guard(async ctx=>{const u=await me(ctx.from.id);if(!u||!['admin','superadmin'].includes(u.role))return ctx.answerCbQuery("Ruxsat yo'q");
  await O.resolveChange(u.tg_id,Number(ctx.match[2]),ctx.match[1]==='ok');await ctx.editMessageReplyMarkup().catch(()=>{});await ctx.answerCbQuery('Tayyor')}));
 const LINK=/(https?:|www\.|t\.me|@\w{4,}|\.(com|uz|ru|org|net)\b)/i;
-bot.on(['text','photo','video','animation'],async ctx=>{const u=await me(ctx.from.id);
- if(canBroadcast(u)&&bcDraft.get(u.tg_id)?.step==='await'){
-  if(ctx.message.text&&ctx.message.text.trim()==='/cancel'){bcDraft.delete(u.tg_id);return ctx.reply('❌ Xabar yuborish bekor qilindi.')}
-  const kind=ctx.message.video?'video':ctx.message.animation?'video':ctx.message.photo?'photo':'text';
+bot.on(['text','photo','video','animation','video_note','document'],async ctx=>{const u=await me(ctx.from.id);
+ const key=bk(ctx.from.id);
+ if(canBroadcast(u)&&bcDraft.get(key)?.step==='await'){
+  if(ctx.message.text&&ctx.message.text.trim()==='/cancel'){bcDraft.delete(key);return ctx.reply('❌ Xabar yuborish bekor qilindi.')}
+  const kind=(ctx.message.video||ctx.message.animation||ctx.message.video_note)?'video':ctx.message.photo?'photo':'text';
   const preview=(ctx.message.text||ctx.message.caption||'').trim().slice(0,120);
-  bcDraft.set(u.tg_id,{step:'confirm',chatId:ctx.chat.id,msgId:ctx.message.message_id,kind,preview,withBtn:true});
+  const msgId=ctx.message.message_id;
+  bcDraft.set(key,{step:'confirm',chatId:ctx.chat.id,msgId,kind,preview,withBtn:true});
   const cnt=await bcCounts();
   const kLabel=kind==='video'?'🎬 Video':kind==='photo'?'🖼 Rasm':'📝 Matn';
-  return ctx.reply(`📣 <b>Xabar tayyor!</b>\nFormat: <b>${kLabel}</b>\nKimlarga yuborilsin?`,{parse_mode:'HTML',...bcConfirmKb(cnt,true)});
+  return ctx.reply(`📣 <b>Xabar tayyor!</b>\nFormat: <b>${kLabel}</b>\nKimlarga yuborilsin?`,{parse_mode:'HTML',...bcConfirmKb(cnt,true,msgId,kind)});
  }
  if(isStaff(u)){const r=ctx.message.reply_to_message;if(!r)return;
   const m=(await q('select user_id from support_map where chat_id=$1 and msg_id=$2',[ctx.chat.id,r.message_id])).rows[0];if(!m)return;
