@@ -317,10 +317,11 @@ function HeroBanners({banners,onOpen}){
       if(Date.now()<pauseRef.current||!ref.current)return
       setIdx(i=>{
         const n=(i+1)%banners.length
-        ref.current?.scrollTo({left:n*ref.current.clientWidth,behavior:'smooth'})
+        const left=ref.current?.children?.[n]?.offsetLeft??(n*(ref.current?.clientWidth||0))
+        ref.current?.scrollTo({left,behavior:'smooth'})
         return n
       })
-    },5000)
+    },3000)
     return()=>clearInterval(id)
   },[banners.length])
   const onScroll=()=>{
@@ -329,12 +330,13 @@ function HeroBanners({banners,onOpen}){
     setIdx(Math.round(ref.current.scrollLeft/w))
   }
   const jump=i=>{
-    pauseRef.current=Date.now()+8000
+    pauseRef.current=Date.now()+6000
     setIdx(i)
-    ref.current?.scrollTo({left:i*(ref.current.clientWidth||0),behavior:'smooth'})
+    const left=ref.current?.children?.[i]?.offsetLeft??(i*(ref.current?.clientWidth||0))
+    ref.current?.scrollTo({left,behavior:'smooth'})
   }
   return <div className="hero-wrap">
-    <div className="hero-track" ref={ref} onScroll={onScroll} onTouchStart={()=>{pauseRef.current=Date.now()+8000}}>
+    <div className="hero-track" ref={ref} onScroll={onScroll} onTouchStart={()=>{pauseRef.current=Date.now()+6000}}>
       {banners.map(b=><div key={b.id} className={'hero-slide'+(!(b.title||b.subtitle)?' no-text':'')} style={{backgroundImage:`url(${b.image})`}} onClick={()=>onOpen(b.link)}>
         {(b.title||b.subtitle)&&<div className="hero-cap">{b.title&&<b>{b.title}</b>}{b.subtitle&&<small>{b.subtitle}</small>}</div>}
       </div>)}
@@ -360,7 +362,7 @@ function BundleCarousel({bundles,onOpen,actionBtn}){
         ref.current.scrollTo({left:loop?0:target,behavior:'smooth'})
         return loop?0:next
       })
-    },4200)
+    },3000)
     return()=>clearInterval(id)
   },[bundles.length])
   const onScroll=()=>{
