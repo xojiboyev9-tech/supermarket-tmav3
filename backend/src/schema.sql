@@ -92,5 +92,16 @@ create index if not exists users_card_status_idx on users(card_status) where car
 create index if not exists categories_parent_idx on categories(parent);
 create index if not exists products_sale_idx on products(sale_until) where active and sale_price is not null;
 
+alter table products add column if not exists min_sum int default 0;
+alter table products add column if not exists weight_g int default 0;
+alter table products add column if not exists priority smallint default 3;
+alter table products add column if not exists family text;
+alter table products add column if not exists sales_count int default 0;
+alter table products add column if not exists needs_setup boolean default false;
+create index if not exists products_rank_idx on products(active,priority asc,sales_count desc,name asc);
+create index if not exists products_family_idx on products(family) where family is not null;
+create index if not exists products_setup_idx on products(needs_setup) where needs_setup;
+
+
 
 

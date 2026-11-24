@@ -8,7 +8,8 @@ process.on('unhandledRejection',e=>console.error('unhandled',e));
 const app=express();app.set('trust proxy',1);app.use(helmet({contentSecurityPolicy:false,crossOriginEmbedderPolicy:false,frameguard:false,referrerPolicy:{policy:'strict-origin-when-cross-origin'}}));
 const origin=(process.env.WEBAPP_URL||'').replace(/\/+$/,'');
 app.use(cors({origin:origin||false}));
-app.use(express.json({limit:'1mb'}));
+const json1=express.json({limit:'1mb'}),json10=express.json({limit:'10mb'});
+app.use((req,res,next)=>(req.path==='/api/sync/products'||req.path==='/api/admin/products/sync')?json10(req,res,next):json1(req,res,next));
 
 /* Lightweight gzip compression for JSON API responses > 1KB */
 app.use('/api',(req,res,next)=>{
@@ -58,7 +59,7 @@ async function getPub(){
  if(pubCache&&pubExp>Date.now())return pubCache;
  if(pubPromise)return pubPromise;
  pubPromise=(async()=>{
-  const [whR,dlR,anR,suR,bnR,bdR,vdR,ctR,scR]=await Promise.all([
+  const [whR,dlR,anR,suR,bnR,bdR,vdR,ctR,scR,fmR]=await Promise.all([
    getSetting('warehouse'),
    getSetting('delivery'),
    q("select value from settings where key='animation'"),
@@ -67,7 +68,8 @@ async function getPub(){
    q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`),
    q('select id,title,yt_id from videos where active order by id desc'),
    q('select name,name_ru,image,section,sort,parent from categories order by sort,id'),
-   q(`select count(*)::int c from products where active and ${SALE_SQL}`)
+   q(`select count(*)::int c from products where active and ${SALE_SQL}`),
+   q("select distinct family from products where active and family is not null and family<>'' order by family limit 40")
   ]);
   pubCache={
    wh:!!whR.enabled,
@@ -78,13 +80,25 @@ async function getPub(){
    bundles:bdR.rows,
    videos:vdR.rows,
    cats:ctR.rows,
-   saleCount:scR.rows[0].c
+   saleCount:scR.rows[0].c,
+   families:fmR.rows.map(r=>r.family)
   };
   pubExp=Date.now()+30000;
   return pubCache;
  })().finally(()=>{pubPromise=null});
  return pubPromise;
 }
+
+/* External One-Way POS Sync Endpoint (Store 'Торговля' -> Mini App, protected by SYNC_API_KEY) */
+app.post('/api/sync/products',wrap(async(req,res)=>{
+ const key=String(process.env.SYNC_API_KEY||'').trim();
+ if(!key)return res.status(503).json({error:'SYNC_API_KEY sozlanmagan'});
+ const got=String(req.get('x-sync-key')||'');
+ if(got.length!==key.length||!crypto.timingSafeEqual(Buffer.from(got),Buffer.from(key)))return res.status(401).json({error:"Kalit noto'g'ri"});
+ const out=await O.syncProducts(0,req.body.items,{autoActive:req.body.autoActive!==false});
+ bustPub();
+ res.json({success:true,...out});
+}));
 
 const auth=async(req,res,next)=>{try{
  const p=new URLSearchParams(req.get('x-init-data')||'');const h=p.get('hash');p.delete('hash');
@@ -111,11 +125,12 @@ app.use('/api',S.ipShield,auth,S.ddosGuard);
 
 app.get('/api/init',wrap(async(req,res)=>{
  const m=req.me,staff=STAFF.includes(m.role),isAdm=ADM.includes(m.role);
- const [pub,ordR,pcR,bcR,ppR,rlR]=await Promise.all([
+ const [pub,ordR,pcR,bcR,suR,ppR,rlR]=await Promise.all([
   getPub(),
-  q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'min_grams',p.min_grams,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit ${staff?200:50}`,staff?[]:[m.tg_id]),
+  q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'min_grams',p.min_grams,'min_sum',p.min_sum,'weight_g',p.weight_g,'priority',p.priority,'family',p.family,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit ${staff?200:50}`,staff?[]:[m.tg_id]),
   isAdm?q("select count(*)::int c from users where card_status='pending'"):null,
   isAdm?q('select count(*)::int c from blocked_users where expires_at is null or expires_at>now()'):null,
+  isAdm?q('select count(*)::int c from products where needs_setup'):null,
   isAdm?q('select * from pending_changes order by id'):null,
   m.role==='superadmin'?q("select tg_id,name,role,department,coalesce(can_broadcast,false) can_broadcast from users where role<>'user'"):null
  ]);
@@ -126,8 +141,9 @@ app.get('/api/init',wrap(async(req,res)=>{
   warehouseEnabled:pub.wh,saleCount:pub.saleCount,
   pendingCardsCount:pcR?pcR.rows[0].c:0,
   blockedCount:bcR?bcR.rows[0].c:0,
-  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,note:d.note||''},animation:pub.anim,support:pub.sup},
-  cats:pub.cats,categories:pub.cats.map(c=>c.name),products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,orders:ordR.rows,
+  setupCount:suR?suR.rows[0].c:0,
+  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
+  cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,orders:ordR.rows,
   pendingProducts:ppR?ppR.rows:[],
   roles:rlR?rlR.rows:null
  });
@@ -201,7 +217,8 @@ app.post('/api/changes/:id',need(...ADM),wrap(async(req,res)=>{await O.resolveCh
 app.post('/api/categories',need(...ADM),wrap(async(req,res)=>{const n=String(req.body.name||'').trim().slice(0,60);if(!n)return res.status(400).json({error:'Nom kerak'});
  if(req.body.action==='delete')await q('delete from categories where name=$1',[n]);else await q('insert into categories(name) values($1) on conflict do nothing',[n]);
  bustPub();await audit(req.me.tg_id,'category.'+(req.body.action||'add'),'category',{n});res.json({success:true})}));
-app.put('/api/settings/delivery',need(...ADM),wrap(async(req,res)=>{const b=req.body,old=await getSetting('delivery');const v={...old,enabled:typeof b.enabled==='boolean'?b.enabled:old.enabled,minTotal:Math.max(0,Math.round(+b.minTotal||0)),note:String(b.note||'').slice(0,200)};await setSetting('delivery',v);bustPub();await audit(req.me.tg_id,'settings.delivery','settings',{old,new:v});res.json(v)}));
+app.put('/api/settings/delivery',need(...ADM),wrap(async(req,res)=>{const b=req.body,old=await getSetting('delivery');const v={...old,enabled:typeof b.enabled==='boolean'?b.enabled:old.enabled,minTotal:Math.max(0,Math.round(+b.minTotal||0)),maxKg:Math.max(0,Math.min(500,Math.round((+b.maxKg||0)*10)/10)),note:String(b.note||'').slice(0,200)};await setSetting('delivery',v);bustPub();await audit(req.me.tg_id,'settings.delivery','settings',{old,new:v});res.json(v)}));
+app.post('/api/admin/products/sync',need(...ADM),wrap(async(req,res)=>{const out=await O.syncProducts(req.me.tg_id,req.body.items,{autoActive:req.body.autoActive!==false});bustPub();res.json({success:true,...out})}));
 app.put('/api/settings/support',need(...ADM),wrap(async(req,res)=>{const raw=String(req.body.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim();
  if(raw&&!/^[a-zA-Z0-9_]{3,32}$/.test(raw))return res.status(400).json({error:"Telegram username noto'g'ri (masalan: @tegen_support)"});
  const phone=String(req.body.phone||'').trim().slice(0,30);const v={username:raw,phone};await setSetting('support',v);bustPub();await audit(req.me.tg_id,'settings.support','settings',v);res.json(v)}));
@@ -249,26 +266,30 @@ app.get('/api/stats',need(...ADM),wrap(async(req,res)=>{
   :(await q(`select to_char(o.created_at at time zone 'Asia/Tashkent','YYYY-MM-DD') d,count(*)::int n,coalesce(sum(o.total),0)::bigint sum from orders o where o.status<>'cancelled' and ${from||to?df:"o.created_at>now()-interval '14 days'"} group by 1 order by 1`,from||to?[from,to]:[])).rows;
  const t=(await q(`select count(*)::int orders,count(*) filter(where o.status<>'cancelled')::int valid_orders,count(*) filter(where o.status='cancelled')::int cancelled,coalesce(sum(o.total) filter(where o.status<>'cancelled'),0)::bigint revenue,coalesce(round(avg(o.total) filter(where o.status<>'cancelled')),0)::bigint avg_check,count(*) filter(where o.status in('new','age_check'))::int pending from orders o where ${df}`,[from,to])).rows[0];
  const byCat=(await q(`select coalesce(p.category,'Nabor') c,sum(coalesce(i.actual_sum,i.ordered_sum))::bigint s from order_items i join orders o on o.id=i.order_id and o.status<>'cancelled' and ${df} left join products p on p.id=i.product_id group by 1 order by 2 desc limit 6`,[from,to])).rows;
- const pc=(await q("select count(*)::int total,count(*) filter(where active)::int active from products")).rows[0];
+ const pc=(await q("select count(*)::int total,count(*) filter(where active)::int active,count(*) filter(where needs_setup)::int setup from products")).rows[0];
  const cust=(await q(`select count(*)::int total,count(*) filter(where ($1::date is null or (created_at at time zone 'Asia/Tashkent')::date>=$1::date) and ($2::date is null or (created_at at time zone 'Asia/Tashkent')::date<=$2::date))::int added from users`,[from,to])).rows[0];
  res.json({totals:t,days,granularity:oneDay?'hour':'day',byCat,products:pc,customers:cust.total,newCustomers:cust.added})}));
 const YT=/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/;
 const KIND={banners:['image','title','subtitle','link'],videos:['title','yt_id'],bundles:['title','title_ru','description','description_ru','image','price']};
-const PSEL='id,category,name,name_uz,description,min_grams,unit,price,sale_price,sale_until,image,age_min';
-app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),sale=req.query.sale==='1',pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
+const PSEL='id,category,name,name_uz,description,min_grams,min_sum,weight_g,priority,family,sales_count,unit,price,sale_price,sale_until,image,age_min';
+app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),fam=String(req.query.family||'').trim().slice(0,60),sale=req.query.sale==='1',pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
  if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
+ if(fam){p.push(fam);w.push(`family=$${p.length}`)}
  if(sale)w.push(SALE_SQL);
  const pub=await getPub();
  if(pub.wh)w.push('(stock is null or stock>0)');
- const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by ${sale?'sale_until nulls last,name':'name'} limit 51 offset ${pg*50}`,p)).rows;
+ const ord=sale?'coalesce(priority,3) asc,sale_until nulls last,coalesce(sales_count,0) desc,name':'coalesce(priority,3) asc,coalesce(sales_count,0) desc,name';
+ const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by ${ord} limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
-app.get('/api/admin/products',need('worker','operator',...ADM),wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),st=req.query.state,cat=String(req.query.cat||''),pg=Math.max(0,Math.min(2000,+req.query.page||0)),w=['true'],p=[];
+app.get('/api/admin/products',need('worker','operator',...ADM),wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),st=req.query.state,cat=String(req.query.cat||''),fam=String(req.query.family||'').trim().slice(0,60),pr=Number(req.query.prio)||0,pg=Math.max(0,Math.min(2000,+req.query.page||0)),w=['true'],p=[];
  if(req.me.role==='worker'){p.push(req.me.department);w.push(`category=$${p.length}`)}
  else if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
+ if(fam){p.push(fam);w.push(`family=$${p.length}`)}
+ if(pr>=1&&pr<=5){p.push(pr);w.push(`coalesce(priority,3)=$${p.length}`)}
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
- if(st==='on')w.push('active');if(st==='off')w.push('not active');if(st==='sale')w.push(SALE_SQL);
- const r=(await q(`select ${PSEL},active,stock,barcode from products where ${w.join(' and ')} order by name limit 51 offset ${pg*50}`,p)).rows;
+ if(st==='on')w.push('active');if(st==='off')w.push('not active');if(st==='sale')w.push(SALE_SQL);if(st==='setup')w.push('needs_setup');
+ const r=(await q(`select ${PSEL},active,stock,barcode,needs_setup from products where ${w.join(' and ')} order by needs_setup desc,coalesce(priority,3) asc,coalesce(sales_count,0) desc,name limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
 app.get('/api/recommend',wrap(async(req,res)=>{const cats=String(req.query.cats||'').split('|').filter(Boolean).slice(0,6),ex=String(req.query.ex||'').split(',').map(Number).filter(Boolean).slice(0,60);
  res.json((await q(`select ${PSEL} from products where active and unit='piece' and category=any($1::text[]) and id<>all($2::int[]) order by random() limit 12`,[cats,ex])).rows)}));

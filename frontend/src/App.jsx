@@ -78,7 +78,48 @@ const RU={
   "Bir marta kiritiladi — keyingi buyurtmalarda so'ralmaydi":"Вводится один раз — в следующих заказах запрашиваться не будет",
   "Xabarlar":"Рассылка","Xabar yuborish":"Отправить рассылку",
   "Xavfsizlik":"Безопасность","Bloklangan ID lar":"Заблокированные ID",
-  "Bloklash":"Заблокировать","Blokdan chiqarish":"Разблокировать"
+  "Bloklash":"Заблокировать","Blokdan chiqarish":"Разблокировать",
+  "Taxminiy og'irlik":"Примерный вес","Maksimal og'irlik":"Максимальный вес",
+  "Oila / Guruh":"Семейство / Группа","Sozlash kerak":"Нужна настройка",
+  "Kundalik ehtiyoj":"Повседневные","Nonushta":"Завтрак","Oilaviy":"Семейные",
+  "Bolalar uchun":"Для детей","Bayramona":"Праздничные"
+}
+
+const FAM_PRESETS=['Kundalik ehtiyoj','Nonushta','Oilaviy','Bolalar uchun','Bayramona','Premium']
+const parseSyncCsv=txt=>{
+  const lines=String(txt||'').replace(/^\uFEFF/,'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean)
+  if(!lines.length)return []
+  const first=lines[0]
+  const sep=first.includes('\t')?'\t':(first.split(';').length>=first.split(',').length?';':',')
+  const splitRow=line=>{
+    const out=[];let cur='',inq=false
+    for(let i=0;i<line.length;i++){
+      const ch=line[i]
+      if(ch==='"'){inq=!inq;continue}
+      if(ch===sep&&!inq){out.push(cur.trim());cur='';continue}
+      cur+=ch
+    }
+    out.push(cur.trim());return out
+  }
+  const rows=lines.map(splitRow)
+  const h=rows[0].map(c=>c.toLowerCase())
+  const findCol=re=>h.findIndex(c=>re.test(c))
+  const iBc=findCol(/(штрих|баркод|barcode|код|code|артикул)/i)
+  const iNm=findCol(/(наимен|товар|назв|name|nomi|mahsulot)/i)
+  const iPr=findCol(/(цена|price|narx|продаж|сумм)/i)
+  const iSt=findCol(/(остат|кол|qty|stock|qoldiq|soni|наличи)/i)
+  const hasHeader=iBc>=0||iNm>=0||iPr>=0||iSt>=0
+  const data=hasHeader?rows.slice(1):rows
+  const items=[]
+  for(const r of data){
+    const barcode=iBc>=0?r[iBc]:(!hasHeader&&r.length>=4?r[0]:'')
+    const name=iNm>=0?r[iNm]:(!hasHeader?(r.length>=4?r[1]:r[0]):'')
+    const price=iPr>=0?r[iPr]:(!hasHeader?(r.length>=4?r[2]:r[1]):'')
+    const stock=iSt>=0?r[iSt]:(!hasHeader?(r.length>=4?r[3]:r[2]):'')
+    const pNum=Math.round(Number(String(price||'').replace(/[^\d.]/g,''))||0)
+    if((name||barcode)&&pNum>0)items.push({barcode:String(barcode||'').trim(),name:String(name||'').trim(),price:pNum,stock:stock===''||stock===undefined?null:Number(String(stock).replace(',','.').replace(/[^\d.-]/g,''))})
+  }
+  return items
 }
 
 const fmtPhone=p=>{const s=String(p||'').replace(/\D/g,'');return s.length===12&&s.startsWith('998')?`+998 ${s.slice(3,5)} ${s.slice(5,8)} ${s.slice(8,10)} ${s.slice(10)}`:(s?'+'+s:'')}
@@ -397,16 +438,20 @@ function BundleCarousel({bundles,onOpen,actionBtn}){
 function WeightSheet({p,cur,close,set}){
   const {t,so,pn}=useLang()
   const up=effPrice(p)
-  const g=p.min_grams>0,[v,setV]=useState(g?(cur?.grams||p.min_grams):(cur?.sum||20000))
+  const g=p.min_grams>0
+  const minS=Math.max(1000,Number(p.min_sum)||0)
+  const sumChips=[...new Set([minS,...[10000,20000,30000,50000,100000].filter(x=>x>=minS)])].sort((a,b)=>a-b).slice(0,4)
+  const [v,setV]=useState(g?(cur?.grams||p.min_grams):(cur?.sum||Math.max(20000,minS)))
   return <div className="sheet" onClick={close}><div onClick={e=>e.stopPropagation()}>
     <div className="sheet-handle"/>
     <h2>{pn(p)} — {so(up)} / kg</h2>
     {g?<><div className="qty big soft"><button onClick={()=>setV(x=>Math.max(p.min_grams,x-p.min_grams))}>−</button><b style={{fontSize:18}}>{v>=1000?v/1000+' kg':v+' g'}</b><button onClick={()=>setV(x=>Math.min(20000,x+p.min_grams))}>+</button></div>
       <div className="m" style={{margin:'10px 0'}}>≈ {so(Math.round(up*v/1000))} · {t("Minimal")}: {p.min_grams} g</div></>
-    :<><div className="gap" style={{marginBottom:10}}>{[10000,20000,50000,100000].map(x=><button key={x} className={'chip'+(v===x?' on':'')} onClick={()=>setV(x)}>{so(x)}</button>)}</div>
+    :<><div className="gap" style={{marginBottom:10}}>{sumChips.map(x=><button key={x} className={'chip'+(v===x?' on':'')} onClick={()=>setV(x)}>{so(x)}</button>)}</div>
       <input className="in" type="text" inputMode="numeric" value={v||''} onChange={e=>setV(Number(e.target.value.replace(/\D/g,''))||0)}/>
-      <div className="m" style={{marginBottom:12}}>≈ {(v/up).toFixed(3)} kg. Tortilgandan so'ng summa biroz o'zgarishi mumkin — o'zgarsa sizdan tasdiq so'raymiz.</div></>}
-    <div className="gap"><button className="btn" style={{flex:1}} disabled={!g&&v<1000} onClick={()=>set(g?{grams:v}:{sum:v})}>{t("Savatga")}</button>{cur&&<button className="btn g" style={{flex:'0 0 auto',width:'auto'}} onClick={()=>set(null)}>{t("O'chirish")}</button>}</div>
+      <div className="m" style={{marginBottom:12}}>≈ {(v/up).toFixed(3)} kg · {t("Minimal")}: <b>{so(minS)}</b>. Tortilgandan so'ng summa biroz o'zgarishi mumkin — o'zgarsa sizdan tasdiq so'raymiz.</div>
+      {v<minS&&<div style={{color:'#BE123C',fontSize:12.5,fontWeight:700,marginTop:-6,marginBottom:10}}>{t("Minimal")}: {so(minS)}</div>}</>}
+    <div className="gap"><button className="btn" style={{flex:1}} disabled={!g&&v<minS} onClick={()=>set(g?{grams:v}:{sum:v})}>{t("Savatga")}</button>{cur&&<button className="btn g" style={{flex:'0 0 auto',width:'auto'}} onClick={()=>set(null)}>{t("O'chirish")}</button>}</div>
   </div></div>
 }
 
@@ -477,18 +522,19 @@ function BundleDetail({b,cart,put,close}){
 
 function Shop({d,cart,setCart,cat,setCat}){
   const {t,so,pn,cn}=useLang()
-  const [q,setQ]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[bdet,setBdet]=useState(null)
+  const [q,setQ]=useState(''),[fam,setFam]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[bdet,setBdet]=useState(null)
   const dq=useDebounced(q)
-  const home=!dq&&!cat
+  const home=!dq&&!cat&&!fam
   const tree=buildCatTree(d.cats)
+  const fams=d.families||[]
 
   const load=useCallback((n,reset)=>{
-    if(!dq&&!cat){setItems([]);setMore(false);return}
+    if(!dq&&!cat&&!fam){setItems([]);setMore(false);return}
     setLoading(true)
-    api(`/api/products?q=${encodeURIComponent(dq)}&cat=${encodeURIComponent(cat)}&page=${n}`)
+    api(`/api/products?q=${encodeURIComponent(dq)}&cat=${encodeURIComponent(cat)}&family=${encodeURIComponent(fam)}&page=${n}`)
       .then(r=>{setItems(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)})
       .catch(()=>{}).finally(()=>setLoading(false))
-  },[dq,cat])
+  },[dq,cat,fam])
 
   useEffect(()=>{load(0,true)},[load])
 
@@ -518,6 +564,10 @@ function Shop({d,cart,setCart,cat,setCat}){
     {home?<>
       {d.banners.length>0&&<HeroBanners banners={d.banners} onOpen={openLink}/>}
 
+      {fams.length>0&&<div className="chips" style={{paddingTop:4}}>
+        {fams.map(fm=><button key={fm} className="chip" onClick={()=>{setFam(fm);scrollTo({top:0,behavior:'smooth'})}}>⭐ {t(fm)}</button>)}
+      </div>}
+
       {d.videos.length>0&&<>
         <div className="sec-head"><h2 className="sec">▶ {t("Yangiliklar")}</h2></div>
         <div className="hrow">{d.videos.map(v=><div className="vid" key={v.id} onClick={()=>setVid(v.yt_id)} style={{backgroundImage:`url(https://img.youtube.com/vi/${v.yt_id}/hqdefault.jpg)`}}><b>▶</b><span>{v.title}</span></div>)}</div>
@@ -546,15 +596,15 @@ function Shop({d,cart,setCart,cat,setCat}){
       </div>
     </>:<>
       {parentObj&&!dq&&<div className="crumb">
-        <button onClick={()=>setCat('')}>{t("Bosh sahifa")}</button>
+        <button onClick={()=>{setCat('');setFam('')}}>{t("Bosh sahifa")}</button>
         <span>›</span>
         <button onClick={()=>setCat(parentObj.name)}>{cn(parentObj)}</button>
       </div>}
       <div className="cat-bar">
-        <button className="back-btn" aria-label="Back" onClick={()=>{if(dq){setQ('')}else if(parentObj){setCat(parentObj.name)}else{setCat('')}}}>
+        <button className="back-btn" aria-label="Back" onClick={()=>{if(dq){setQ('')}else if(fam&&!cat){setFam('')}else if(parentObj){setCat(parentObj.name)}else{setCat('');setFam('')}}}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
-        <h1>{dq?t("Qidiruv natijalari"):(curCatObj?cn(curCatObj):cat)}</h1>
+        <h1>{dq?t("Qidiruv natijalari"):(curCatObj?cn(curCatObj):(fam?t(fam):cat))}</h1>
       </div>
 
       {subCats.length>0&&<>
@@ -569,9 +619,14 @@ function Shop({d,cart,setCart,cat,setCat}){
       <div className="chips">
         {parentObj
           ?<button className={'chip'+(cat===parentObj.name?' on':'')} onClick={()=>setCat(parentObj.name)}>{t("Hammasi")}</button>
-          :<button className={'chip'+(!cat?' on':'')} onClick={()=>setCat('')}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>}
+          :<button className={'chip'+(!cat&&!fam?' on':'')} onClick={()=>{setCat('');setFam('')}}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>}
         {chipList.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
       </div>
+
+      {fams.length>0&&<div className="chips sub">
+        <button className={'chip'+(!fam?' on':'')} onClick={()=>setFam('')}>{t("Hammasi")}</button>
+        {fams.map(fm=><button key={fm} className={'chip'+(fam===fm?' on':'')} onClick={()=>setFam(fm)}>⭐ {t(fm)}</button>)}
+      </div>}
 
       <div className="grid">
         {items.map(p=><div className="card prod" key={p.id} onClick={()=>setDet(p)}>
@@ -669,13 +724,23 @@ function Cart({d,cart,setCart,act,done,onReload}){
   const [type,setType]=useState('pickup'),[addr,setAddr]=useState(''),[phone,setPhone]=useState(''),[rec,setRec]=useState([]),[sh,setSh]=useState(null)
   const lines=Object.entries(cart).map(([k,v])=>({k,p:v.p,v})),dl=d.settings.delivery
   const sub=lines.reduce((s,{p,v})=>s+lsum(p,v),0),age=Math.max(0,...lines.map(l=>l.p.age_min||0))
+  const estKg=lines.reduce((w,{p,v})=>{
+    if(p.bundle)return w
+    if(p.unit==='weight'){
+      if(v.grams)return w+v.grams/1000
+      if(v.sum){const up=effPrice(p);return w+(up>0?v.sum/up:0)}
+      return w+(Number(v.qty)||0)
+    }
+    return w+((Number(p.weight_g)||0)*(Number(v.qty)||1))/1000
+  },0)
   const prods=lines.filter(l=>!l.p.bundle),cats=[...new Set(prods.map(l=>l.p.category))].join('|'),ex=prods.map(l=>l.p.id).join(',')
   useEffect(()=>{if(!cats){setRec([]);return}api(`/api/recommend?cats=${encodeURIComponent(cats)}&ex=${ex}`).then(setRec).catch(()=>{})},[cats,ex])
   const put=(p,v)=>setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})
   if(!lines.length)return <div className="center" style={{minHeight:300}}>{t("🛒 Savat bo'sh")}</div>
   const needPhone=!d.user.phone
   const phoneOk=!needPhone||phone.replace(/\D/g,'').length>=9
-  const minT=dl.minTotal||0,ok=phoneOk&&(type==='pickup'||(sub>=minT&&addr.trim().length>=5))
+  const minT=dl.minTotal||0,maxKg=Number(dl.maxKg)||0,overKg=type==='delivery'&&maxKg>0&&estKg>maxKg
+  const ok=phoneOk&&(type==='pickup'||(sub>=minT&&!overKg&&addr.trim().length>=5))
   return <>
     <h1>{t("Savat")}</h1>
     <div className="card">
@@ -713,8 +778,10 @@ function Cart({d,cart,setCart,act,done,onReload}){
     {type==='delivery'&&<div className="card">
       {(()=>{const past=[...new Set([...loadAddrs(),...d.orders.filter(o=>o.user_id==d.user.telegramId&&o.type==='delivery'&&o.address).map(o=>o.address.trim())])].filter(Boolean).slice(0,5);return past.length>0&&<div className="addr-pick">{past.map(a=><button key={a} type="button" className={'chip'+(addr===a?' on':'')} onClick={()=>setAddr(a)}>📍 {a.length>26?a.slice(0,26)+'…':a}</button>)}</div>})()}
       <textarea className="in" rows={2} placeholder={t("Manzil (ko'cha, uy, mo'ljal)")} value={addr} onChange={e=>setAddr(e.target.value)}/>
-      <div className="m">📞 Buyurtmadan keyin administrator telefon orqali bog'lanib tasdiqlaydi.{minT>0&&` Minimal summa: ${so(minT)}.`} {dl.note}</div>
-      {sub<minT&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>Yana {so(minT-sub)} kerak</div>}</div>}
+      <div className="m">📞 Buyurtmadan keyin administrator telefon orqali bog'lanib tasdiqlaydi.{minT>0&&` Minimal summa: ${so(minT)}.`}{maxKg>0&&` ${t("Maksimal og'irlik")}: ${maxKg} kg.`} {dl.note}</div>
+      {sub<minT&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>Yana {so(minT-sub)} kerak</div>}
+      {overKg&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>⚖️ Yetkazib berish limiti {maxKg} kg (hozir ~{estKg.toFixed(2)} kg). Ba'zi tovarlarni kamaytiring yoki olib ketishni tanlang.</div>}
+    </div>}
 
     {needPhone&&<div className="card" style={{background:'#FFF7F8',borderColor:'#FECDD3'}}>
       <h2 style={{marginBottom:4}}>📱 {t("Telefon raqam")}</h2>
@@ -724,6 +791,7 @@ function Cart({d,cart,setCart,act,done,onReload}){
     </div>}
 
     <div className="card"><div className="row"><span>{t("Mahsulotlar")}</span><b>{so(sub)}</b></div>
+      {estKg>0&&<div className="row"><span>⚖️ {t("Taxminiy og'irlik")}</span><b style={overKg?{color:'#BE123C'}:undefined}>{estKg.toFixed(2)} kg{type==='delivery'&&maxKg>0?` / max ${maxKg} kg`:''}</b></div>}
       <div className="row" style={{fontSize:17}}><b>{t("Jami")}</b><b style={{color:'#E11D48'}}>{so(sub)}</b></div>
       {d.user.cardStatus==='active'&&d.user.cardNumber&&<div className="m" style={{color:'#B91C1C',fontWeight:600}}>💳 {t("Diskont karta")}: {d.user.cardNumber} (2% {t("keshbek")})</div>}
       {lines.some(l=>l.v.sum)&&<div className="m">⚖️ Og'irlikli tovarlar tortilgach narx o'zgarsa, tasdiqlashingiz so'raladi.</div>}
@@ -831,7 +899,7 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act,onReload}){
   for(const o of valid){
     for(const i of (o.items||[])){
       if(!i.product_id||i.active===false||i.unit!=='piece')continue
-      const cur=freqMap.get(i.product_id)||{cnt:0,p:{id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0}}
+      const cur=freqMap.get(i.product_id)||{cnt:0,p:{id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0}}
       cur.cnt+=Number(i.qty)||1
       freqMap.set(i.product_id,cur)
     }
@@ -845,13 +913,14 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act,onReload}){
     const next={...cart}
     for(const i of (o.items||[])){
       if(!i.product_id||i.active===false)continue
-      const p={id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0}
+      const p={id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0}
       if(!p.price)continue
       if(p.unit==='piece'){
         const qty=Math.max(1,Math.min(500,Math.round(Number(i.qty)||1)))
         next[keyOf(p)]={p,qty};added++
       }else if(p.unit==='weight'&&!(p.min_grams>0)){
-        const sum=Math.max(1000,Math.round(Number(i.ordered_sum)||10000))
+        const minS=Math.max(1000,Number(p.min_sum)||0)
+        const sum=Math.max(minS,Math.round(Number(i.ordered_sum)||minS))
         next[keyOf(p)]={p,sum};added++
       }
     }
@@ -1012,7 +1081,7 @@ function DateRangeBar({per,setPer,from,setFrom,to,setTo,ft,setFt,tt,setTt}){
   </>
 }
 
-function Dash(){
+function Dash({onNav}){
   const {t,so}=useLang()
   const [per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   const [s,setS]=useState(null),[loading,setLoading]=useState(true)
@@ -1028,15 +1097,33 @@ function Dash(){
   const tot=(s?.byCat||[]).reduce((a,x)=>a+Number(x.s),0)||1
   const COL=['#E11D48','#F59E0B','#10B981','#3B82F6','#8B5CF6','#6B7280']
   let acc=0
+  const nav=(tb,opts)=>onNav&&onNav(tb,opts)
 
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     {!s?<div className="center" style={{minHeight:180}}>{t("Yuklanmoqda…")}</div>:<div style={{opacity:loading?.6:1,transition:'opacity .15s'}}>
       <div className="kpi">
-        <div className="card kp"><span className="ico">💰</span><span className="m">{t("Jami tushum")}</span><b>{so(s.totals.revenue)}</b><em className="muted">{t("O'rtacha chek")}: {so(s.totals.avg_check)}</em></div>
-        <div className="card kp"><span className="ico">🛍</span><span className="m">{t("Buyurtmalar")}</span><b>{s.totals.valid_orders??s.totals.orders} {t("ta")}</b><em>{s.totals.pending?`${s.totals.pending} ${t("kutilmoqda")}`:`${s.totals.cancelled||0} ${t("bekor")}`}</em></div>
-        <div className="card kp"><span className="ico">👥</span><span className="m">{t("Mijozlar")}</span><b>{s.customers}</b><em>+{s.newCustomers||0} {t("yangi")}</em></div>
-        <div className="card kp"><span className="ico">📦</span><span className="m">{t("Mahsulotlar")}</span><b>{s.products.total}</b><em className="muted">{s.products.active} {t("faol")}</em></div>
+        <div className="card kp click" onClick={()=>nav('o',{orderFilter:'completed'})}>
+          <span className="kp-go">›</span>
+          <span className="ico">💰</span><span className="m">{t("Jami tushum")}</span><b>{so(s.totals.revenue)}</b>
+          <em className="muted">{t("O'rtacha chek")}: {so(s.totals.avg_check)}</em>
+        </div>
+        <div className="card kp click" onClick={()=>nav('o',{orderFilter:'all'})}>
+          <span className="kp-go">›</span>
+          <span className="ico">🛍</span><span className="m">{t("Buyurtmalar")}</span><b>{s.totals.valid_orders??s.totals.orders} {t("ta")}</b>
+          <em onClick={e=>{e.stopPropagation();nav('o',{orderFilter:s.totals.pending?'new':'cancelled'})}}>{s.totals.pending?`${s.totals.pending} ${t("kutilmoqda")}`:`${s.totals.cancelled||0} ${t("bekor")}`}</em>
+        </div>
+        <div className="card kp click" onClick={()=>nav('m')}>
+          <span className="kp-go">›</span>
+          <span className="ico">👥</span><span className="m">{t("Mijozlar")}</span><b>{s.customers}</b>
+          <em>+{s.newCustomers||0} {t("yangi")}</em>
+        </div>
+        <div className="card kp click" onClick={()=>nav('p',{prodState:'on',prodCat:''})}>
+          <span className="kp-go">›</span>
+          <span className="ico">📦</span><span className="m">{t("Mahsulotlar")}</span><b>{s.products.total}</b>
+          {s.products.setup>0?<em onClick={e=>{e.stopPropagation();nav('p',{prodState:'setup',prodCat:''})}} style={{color:'#E11D48'}}>{s.products.active} {t("faol")} · 🆕 {s.products.setup}</em>
+            :<em className="muted">{s.products.active} {t("faol")}</em>}
+        </div>
       </div>
 
       <div className="card">
@@ -1070,9 +1157,9 @@ function Dash(){
             <circle r=".58" fill="#fff"/>
           </svg>
           <div style={{flex:1,minWidth:0}}>
-            {s.byCat.map((x,i)=><div className="row" key={i} style={{margin:'5px 0'}}>
+            {s.byCat.map((x,i)=><div className="row cat-click-row" key={i} style={{margin:'3px 0'}} onClick={()=>x.c==='Nabor'?nav('c'):nav('p',{prodCat:x.c,prodState:'all'})}>
               <span style={{fontSize:12.5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><i className="dot" style={{background:COL[i%6]}}/>{t(x.c)}</span>
-              <span style={{textAlign:'right',flex:'none'}}><b style={{fontSize:12.5}}>{Math.round(Number(x.s)/tot*100)}%</b><span className="m" style={{display:'block',fontSize:10.5}}>{so(x.s)}</span></span>
+              <span style={{textAlign:'right',flex:'none'}}><b style={{fontSize:12.5}}>{Math.round(Number(x.s)/tot*100)}% ›</b><span className="m" style={{display:'block',fontSize:10.5}}>{so(x.s)}</span></span>
             </div>)}
           </div>
         </div>
@@ -1081,9 +1168,10 @@ function Dash(){
   </>
 }
 
-function AdminOrders({d,act,say}){
+function AdminOrders({d,act,say,initFilter}){
   const {t,so}=useLang()
-  const [w,setW]=useState({}),[fee,setFee]=useState({}),[f,setF]=useState('all'),[sub,setSub]=useState(null),[sq,setSq]=useState(''),[res,setRes]=useState([]),dq=useDebounced(sq),list=d.orders.filter(o=>f==='all'||o.status===f),post=(o,p,b,m)=>act(()=>api(`/api/orders/${o.id}/${p}`,'POST',b),m)
+  const [w,setW]=useState({}),[fee,setFee]=useState({}),[f,setF]=useState(initFilter||'all'),[sub,setSub]=useState(null),[sq,setSq]=useState(''),[res,setRes]=useState([]),dq=useDebounced(sq),list=d.orders.filter(o=>f==='all'||o.status===f),post=(o,p,b,m)=>act(()=>api(`/api/orders/${o.id}/${p}`,'POST',b),m)
+  useEffect(()=>{if(initFilter)setF(initFilter)},[initFilter])
   useEffect(()=>{if(!sub||dq.length<2){setRes([]);return}api(`/api/admin/products?q=${encodeURIComponent(dq)}&state=on&page=0`).then(r=>setRes(r.items.slice(0,6))).catch(()=>{})},[dq,sub])
   return <><div className="chips">{['all','new','accepted','preparing','sub_pending','ready','completed','cancelled'].map(k=><button key={k} className={'chip'+(f===k?' on':'')} onClick={()=>setF(k)}>{k==='all'?t("Hammasi"):t(ST[k][0])}</button>)}</div>
   {list.map(o=><div className="card" key={o.id}>
@@ -1252,11 +1340,13 @@ function SaleTimePicker({value,onChange}){
   </>
 }
 
-function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
+function ProductFields({f,setF,dept,tree,families,onPick,onSave,onCancel,saveLabel}){
   const {t,so,cn}=useLang()
   const set=k=>e=>setF({...f,[k]:e.target.value})
   const pr=Number(f.price)||0,sp=Number(f.sale_price)||0
   const pct=pr>0&&sp>0&&sp<pr?Math.max(1,Math.round((1-sp/pr)*100)):0
+  const prio=Number(f.priority)||3
+  const famOpts=[...new Set([...FAM_PRESETS,...(families||[])])]
   return <>
     <input className="in" placeholder="Название (русский)" value={f.name} onChange={set('name')}/>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name_uz||''} onChange={set('name_uz')}/>
@@ -1265,6 +1355,10 @@ function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder={t("Narx (dona yoki kg uchun)")} value={f.price} onChange={e=>setF({...f,price:digits(e.target.value)})}/>
       <select className="in" style={{flex:1}} value={f.unit} onChange={set('unit')}><option value="piece">Dona</option><option value="weight">Og'irlik (kg)</option></select>
     </div>
+    {f.unit==='weight'?<div className="gap">
+      <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. summa (so'm, mas. 15000)" value={f.min_sum||''} onChange={e=>setF({...f,min_sum:digits(e.target.value)})}/>
+      <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. gramm (ixtiyoriy)" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>
+    </div>:<input className="in" type="text" inputMode="numeric" placeholder="Og'irligi (gramm, yetkazish limiti uchun — ixtiyoriy)" value={f.weight_g||''} onChange={e=>setF({...f,weight_g:digits(e.target.value)})}/>}
     <div className="sale-box">
       <div className="sale-box-t">
         <span>🔥 {t("Aksiya")} (ixtiyoriy)</span>
@@ -1274,7 +1368,19 @@ function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
       {pct>0&&<div className="sale-save-pill">🏷️ <s>{so(pr)}</s> → <b>{so(sp)}</b> <span>(−{pct}%)</span></div>}
       {sp>0&&<SaleTimePicker value={f.sale_until||''} onChange={v=>setF({...f,sale_until:v})}/>}
     </div>
-    {f.unit==='weight'&&<input className="in" type="text" inputMode="numeric" placeholder="Minimal gramm (masalan 250). Bo'sh = summa bilan sotiladi" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>}
+    <div style={{marginBottom:10}}>
+      <div className="m" style={{marginBottom:4,fontWeight:600}}>🏆 Ustuvorlik / O'rin (1 = eng birinchi · 5 = oxirgi)</div>
+      <div className="prio-bar">
+        {[[1,'1 🔥'],[2,'2 ⭐'],[3,'3'],[4,'4'],[5,'5']].map(([n,lbl])=>
+          <button key={n} type="button" className={prio===n?'on':''} onClick={()=>setF({...f,priority:n})}>{lbl}</button>)}
+      </div>
+    </div>
+    <div style={{marginBottom:8}}>
+      <input className="in" style={{marginBottom:6}} placeholder={`👨‍👩‍👧‍👦 ${t("Oila / Guruh")} (masalan: Kundalik ehtiyoj)`} value={f.family||''} onChange={set('family')}/>
+      <div className="chips" style={{marginBottom:2}}>
+        {famOpts.map(fm=><button key={fm} type="button" className={'chip'+(f.family===fm?' on':'')} onClick={()=>setF({...f,family:f.family===fm?'':fm})}>{t(fm)}</button>)}
+      </div>
+    </div>
     <div className="gap">
       {!dept&&<select className="in" style={{flex:2}} value={f.category} onChange={set('category')}>{tree.flat.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}</select>}
       <select className="in" style={{flex:1}} value={f.age_min||0} onChange={set('age_min')}><option value="0">Yosh: yo'q</option><option value="16">16+</option><option value="18">18+</option><option value="20">20+</option><option value="21">21+</option></select>
@@ -1284,6 +1390,10 @@ function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
       {f.image&&<img src={f.image} style={{width:52,height:52,borderRadius:12,objectFit:'cover'}}/>}
       <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={onPick}/></label>
     </div>
+    {f.needs_setup&&!dept&&<label className="row" style={{margin:'4px 0 10px',padding:'8px 10px',background:'#ECFDF5',borderRadius:12,border:'1px solid #A7F3D0'}}>
+      <span style={{fontSize:13,fontWeight:600,color:'#065F46'}}>✅ Saqlash bilan sotuvga faol qilish</span>
+      <input type="checkbox" checked={!!f.activate} onChange={e=>setF({...f,activate:e.target.checked})}/>
+    </label>}
     <div className="gap">
       <button className="btn s" style={{flex:1}} onClick={onSave}>{saveLabel||t("Saqlash")}</button>
       {onCancel&&<button className="btn s g" onClick={onCancel}>{t("Bekor")}</button>}
@@ -1291,21 +1401,25 @@ function ProductFields({f,setF,dept,tree,onPick,onSave,onCancel,saveLabel}){
   </>
 }
 
-function Products({d,act}){
+function Products({d,act,say,initState,initCat}){
   const {t,so,cn}=useLang()
   const tree=buildCatTree(d.cats)
   const dept=d.role==='worker'?d.workerDepartment:null
-  const e0={name:'',name_uz:'',description:'',barcode:'',price:'',sale_price:'',sale_until:'',unit:'piece',image:'',category:dept||d.categories[0],age_min:0,min_grams:0}
+  const e0={name:'',name_uz:'',description:'',barcode:'',price:'',sale_price:'',sale_until:'',unit:'piece',image:'',category:dept||d.categories[0],age_min:0,min_grams:'',min_sum:'',weight_g:'',priority:3,family:''}
   const [addOpen,setAddOpen]=useState(false),[f,setF]=useState(e0),[ed,setEd]=useState(null)
-  const [q,setQ]=useState(''),[st,setSt]=useState('all'),[cat,setCat]=useState('')
+  const [q,setQ]=useState(''),[st,setSt]=useState(initState||'all'),[cat,setCat]=useState(initCat||''),[prio,setPrio]=useState(''),[fam,setFam]=useState('')
   const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
+  const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncAuto,setSyncAuto]=useState(true),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
   const dq=useDebounced(q)
   const go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
 
-  const load=useCallback((n,reset)=>api(`/api/admin/products?q=${encodeURIComponent(dq)}&state=${st}&cat=${encodeURIComponent(cat)}&page=${n}`).then(r=>{setList(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)}).catch(()=>{}),[dq,st,cat])
+  useEffect(()=>{if(initState)setSt(initState)},[initState])
+  useEffect(()=>{if(initCat!==undefined)setCat(initCat)},[initCat])
+
+  const load=useCallback((n,reset)=>api(`/api/admin/products?q=${encodeURIComponent(dq)}&state=${st}&cat=${encodeURIComponent(cat)}&prio=${prio}&family=${encodeURIComponent(fam)}&page=${n}`).then(r=>{setList(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)}).catch(()=>{}),[dq,st,cat,prio,fam])
   useEffect(()=>{load(0,true)},[load,ver])
 
-  const prepPayload=obj=>{const dt=obj.sale_until?new Date(obj.sale_until):null;return {...obj,sale_price:obj.sale_price?Number(obj.sale_price):null,sale_until:obj.sale_price&&dt&&!Number.isNaN(dt.getTime())?dt.toISOString():null}}
+  const prepPayload=obj=>{const dt=obj.sale_until?new Date(obj.sale_until):null;return {...obj,sale_price:obj.sale_price?Number(obj.sale_price):null,sale_until:obj.sale_price&&dt&&!Number.isNaN(dt.getTime())?dt.toISOString():null,min_grams:Number(obj.min_grams)||0,min_sum:Number(obj.min_sum)||0,weight_g:Number(obj.weight_g)||0,priority:Number(obj.priority)||3,family:String(obj.family||'').trim()||null}}
   const pickFor=setter=>async e=>{const file=e.target.files[0];if(!file)return;try{const u=await upload(file);setter(x=>({...x,image:u}))}catch(er){alert(er.message)}}
   const saveNew=()=>go(async()=>{await api('/api/products','POST',prepPayload(f));setF({...e0,category:cat||e0.category});setAddOpen(false)},dept?'Adminga tasdiqlash uchun yuborildi':'Saqlandi')
   const saveEdit=()=>act(async()=>{
@@ -1313,11 +1427,38 @@ function Products({d,act}){
     await api(`/api/products/${ed.id}`,'PUT',body)
     if(!dept){
       const sp=body.sale_price&&body.sale_price>0&&body.sale_price<Math.round(Number(ed.price))?body.sale_price:null
-      const updated={...ed,price:Math.round(Number(ed.price)),sale_price:sp,sale_until:sp?body.sale_until:null,min_grams:Math.round(Number(ed.min_grams))||0,age_min:Math.round(Number(ed.age_min))||0,barcode:String(ed.barcode||'').trim()||null,name_uz:String(ed.name_uz||'').trim()||null}
-      setList(prev=>prev.map(x=>x.id===ed.id?{...x,...updated}:x))
+      const nextActive=ed.activate?true:ed.active
+      const updated={...ed,price:Math.round(Number(ed.price)),sale_price:sp,sale_until:sp?body.sale_until:null,min_grams:body.min_grams,min_sum:body.min_sum,weight_g:body.weight_g,priority:body.priority,family:body.family,age_min:Math.round(Number(ed.age_min))||0,barcode:String(ed.barcode||'').trim()||null,name_uz:String(ed.name_uz||'').trim()||null,needs_setup:false,active:nextActive}
+      setList(prev=>prev.map(x=>x.id===ed.id?{...x,...updated}:x).filter(x=>st!=='setup'||x.needs_setup))
     }
     setEd(null)
   },dept?'Adminga tasdiqlash uchun yuborildi':'Saqlandi')
+
+  const pickSyncFile=async e=>{
+    const file=e.target.files[0];if(!file)return
+    setSyncRes(null);setSyncFile(file.name)
+    try{
+      const txt=await file.text()
+      const rows=parseSyncCsv(txt)
+      setSyncRows(rows)
+      if(!rows.length&&say)say("Faylda mos mahsulotlar topilmadi")
+    }catch(er){if(say)say(er.message)}
+    e.target.value=''
+  }
+
+  const runSync=async()=>{
+    if(!syncRows.length||syncBusy)return
+    setSyncBusy(true)
+    try{
+      const res=await api('/api/admin/products/sync','POST',{items:syncRows,autoActive:syncAuto})
+      setSyncRes(res)
+      setSyncRows([])
+      setVer(v=>v+1)
+      if(say)say(`✅ Sinxronlandi: ${res.updated} yangilandi, ${res.created} yangi`)
+      await act(async()=>{})
+    }catch(er){if(say)say(er.message)}
+    setSyncBusy(false)
+  }
 
   const curCatObj=tree.byName.get(cat)
   const activeRoot=curCatObj?.parent?curCatObj.parent:cat
@@ -1332,11 +1473,63 @@ function Products({d,act}){
         <h2 style={{margin:0}}>➕ {t("Yangi mahsulot")}</h2>
         <button className="btn s g" onClick={()=>{if(!addOpen&&cat&&!dept)setF(x=>({...x,category:cat}));setAddOpen(o=>!o)}}>{addOpen?'✕':t("Qo'shish")}</button>
       </div>
-      {addOpen&&<div style={{marginTop:10}}><ProductFields f={f} setF={setF} dept={dept} tree={tree} onPick={pickFor(setF)} onSave={saveNew} onCancel={()=>setAddOpen(false)}/></div>}
+      {addOpen&&<div style={{marginTop:10}}><ProductFields f={f} setF={setF} dept={dept} tree={tree} families={d.families} onPick={pickFor(setF)} onSave={saveNew} onCancel={()=>setAddOpen(false)}/></div>}
     </div>
 
+    {!dept&&<div className="card" style={{padding:syncOpen?14:10}}>
+      <div className="row" style={{margin:0}}>
+        <h2 style={{margin:0}}>📥 POS / CSV sinxronlash</h2>
+        <button className="btn s g" onClick={()=>setSyncOpen(o=>!o)}>{syncOpen?'✕':'Ochish'}</button>
+      </div>
+      {syncOpen&&<div className="sync-box" style={{marginTop:10}}>
+        <div className="m" style={{color:'var(--t2)',marginBottom:8}}>
+          Do'kon dasturidan («Торговля → Отчёты») eksport qilingan <b>CSV / TSV</b> faylni yuklang (ustunlar: Shtrixkod, Nomi, Narx, Qoldiq).<br/>
+          • <b>Faqat bir tomonlama</b> — do'kon bazasiga tegilmaydi.<br/>
+          • Mavjud tovarlarning narxi va faolligi yangilanadi (rasm, kategoriya va o'rin saqlanib qoladi).<br/>
+          • Yangi tovarlar <b>«🆕 Sozlash kerak»</b> bo'limiga tushadi — rasm, kategoriya va 1–5 o'rin qo'yib faollashtirasiz.
+        </div>
+        <div className="gap" style={{alignItems:'center',marginBottom:8}}>
+          <label className="btn s g" style={{cursor:'pointer'}}>📄 CSV / TSV fayl tanlash<input type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={pickSyncFile}/></label>
+          {syncFile&&<span className="m">{syncFile} ({syncRows.length} ta)</span>}
+        </div>
+        {syncRows.length>0&&<>
+          <div style={{background:'#fff',borderRadius:12,padding:8,marginBottom:8,border:'1px solid var(--bd)'}}>
+            {syncRows.slice(0,3).map((r,i)=><div key={i} className="m" style={{margin:'2px 0'}}>
+              <b>{r.name||r.barcode}</b> · {so(r.price)}{r.stock!=null?` · qoldiq: ${r.stock}`:''}
+            </div>)}
+            {syncRows.length>3&&<div className="m">… va yana {syncRows.length-3} ta mahsulot</div>}
+          </div>
+          <label className="row" style={{margin:'0 0 8px'}}>
+            <span style={{fontSize:12.5}}>Qoldiq &gt; 0 → Faol, 0 → Nofaol</span>
+            <input type="checkbox" checked={syncAuto} onChange={e=>setSyncAuto(e.target.checked)}/>
+          </label>
+          <button className="btn s" style={{width:'100%'}} disabled={syncBusy} onClick={runSync}>
+            {syncBusy?'Sinxronlanmoqda…':`🔄 Sinxronlash (${syncRows.length} ta)`}
+          </button>
+        </>}
+        {syncRes&&<div style={{marginTop:8,padding:8,borderRadius:12,background:'#ECFDF5',color:'#065F46',fontSize:12.5,fontWeight:600}}>
+          ✅ Yangilandi: {syncRes.updated} · Faollashdi: {syncRes.activated} · Nofaol: {syncRes.deactivated} · 🆕 Yangi (sozlash kerak): {syncRes.created}
+          {syncRes.created>0&&<button type="button" className="btn s" style={{marginTop:6,width:'100%'}} onClick={()=>{setSt('setup');setCat('');setSyncOpen(false)}}>🆕 Yangilarni sozlash ({syncRes.created})</button>}
+        </div>}
+        <div className="m" style={{marginTop:8,fontSize:11}}>⚙️ Avtomatik POS ulanish: <code>POST /api/sync/products</code> (sarlavha: <code>X-Sync-Key</code>).</div>
+      </div>}
+    </div>}
+
     <input className="search search-plain" placeholder="🔍 Nomi yoki shtrixkod" value={q} onChange={e=>setQ(e.target.value)}/>
-    <div className="chips">{[['all','Hammasi'],['on','Faol'],['off','Nofaol'],['sale','🔥 Aksiya']].map(([k,l])=><button key={k} className={'chip'+(st===k?' on':'')} onClick={()=>setSt(k)}>{k==='sale'?'🔥 '+t('Aksiya'):t(l)}</button>)}</div>
+    <div className="chips">
+      {[['all','Hammasi'],['on','Faol'],['off','Nofaol'],['setup',`🆕 ${t("Sozlash kerak")}${d.setupCount?` (${d.setupCount})`:''}`],['sale','🔥 '+t('Aksiya')]].map(([k,l])=>
+        <button key={k} className={'chip'+(st===k?' on':'')} onClick={()=>setSt(k)}>{(k==='setup'||k==='sale')?l:t(l)}</button>)}
+    </div>
+
+    <div className="chips">
+      {[['','🏆 Barcha o\'rin'],['1','1 🔥'],['2','2 ⭐'],['3','3'],['4','4'],['5','5']].map(([k,l])=>
+        <button key={k||'all'} className={'chip'+(prio===k?' on':'')} onClick={()=>setPrio(k)}>{l}</button>)}
+    </div>
+
+    {(d.families||[]).length>0&&<div className="chips">
+      <button className={'chip'+(!fam?' on':'')} onClick={()=>setFam('')}>👨‍👩‍👧‍👦 {t("Hammasi")}</button>
+      {d.families.map(fm=><button key={fm} className={'chip'+(fam===fm?' on':'')} onClick={()=>setFam(fam===fm?'':fm)}>{t(fm)}</button>)}
+    </div>}
 
     {!dept&&<>
       <div className="chips">
@@ -1351,14 +1544,21 @@ function Products({d,act}){
 
     {list.map(p=>{
       const onS=isSale(p)
-      return <div className="card" key={p.id} style={{opacity:p.active||ed?.id===p.id?1:.55}}>
+      return <div className="card" key={p.id} style={{opacity:p.active||ed?.id===p.id||p.needs_setup?1:.55,borderColor:p.needs_setup?'#FDE68A':undefined}}>
         <div className="row">
           <div className="row-txt">
             <b>{p.name}</b>
+            {p.needs_setup&&<span className="badge amber" style={{marginLeft:6}}>🆕 {t("Sozlash kerak")}</span>}
+            {p.priority&&p.priority<=2&&<span className="badge red" style={{marginLeft:6}}>🏆 #{p.priority}</span>}
+            {p.family&&<span className="badge gray" style={{marginLeft:6}}>{t(p.family)}</span>}
             {p.name_uz&&<div className="m">{p.name_uz}</div>}
             {p.age_min>0&&<span className="age2">{p.age_min}+</span>}
             <div className="m">
-              {p.category} · {onS?<><s style={{marginRight:4}}>{so(p.price)}</s><b style={{color:'var(--b)'}}>{so(p.sale_price)} 🔥</b></>:so(p.price)}{p.unit==='weight'?' / kg':''}{p.barcode?` · #${p.barcode}`:''}
+              {p.category} · {onS?<><s style={{marginRight:4}}>{so(p.price)}</s><b style={{color:'var(--b)'}}>{so(p.sale_price)} 🔥</b></>:so(p.price)}{p.unit==='weight'?' / kg':''}
+              {p.unit==='weight'&&p.min_sum>0?` · min ${so(p.min_sum)}`:''}
+              {p.unit==='piece'&&p.weight_g>0?` · ${p.weight_g} g`:''}
+              {p.sales_count>0?` · ⭐ ${p.sales_count}`:''}
+              {p.barcode?` · #${p.barcode}`:''}
             </div>
             {onS&&p.sale_until&&<div style={{marginTop:3}}><Countdown until={p.sale_until} mode="inline"/></div>}
           </div>
@@ -1367,15 +1567,15 @@ function Products({d,act}){
               const active=e.target.checked
               act(async()=>{
                 await api(`/api/products/${p.id}/active`,'PUT',{active})
-                setList(prev=>prev.map(x=>x.id===p.id?{...x,active}:x).filter(x=>st==='all'||st==='sale'||(st==='on'?x.active:!x.active)))
+                setList(prev=>prev.map(x=>x.id===p.id?{...x,active}:x).filter(x=>st==='all'||st==='sale'||st==='setup'||(st==='on'?x.active:!x.active)))
               })
             }}/><i/></label>}
-            <button className={'btn s '+(ed?.id===p.id?'':'g')} onClick={()=>setEd(cur=>cur?.id===p.id?null:{...p,barcode:p.barcode||'',price:String(p.price||''),sale_price:p.sale_price?String(p.sale_price):'',sale_until:toLocalInput(p.sale_until),min_grams:p.min_grams||''})}>{ed?.id===p.id?'✕':'✎'}</button>
+            <button className={'btn s '+(ed?.id===p.id?'':'g')} onClick={()=>setEd(cur=>cur?.id===p.id?null:{...p,barcode:p.barcode||'',price:String(p.price||''),sale_price:p.sale_price?String(p.sale_price):'',sale_until:toLocalInput(p.sale_until),min_grams:p.min_grams||'',min_sum:p.min_sum||'',weight_g:p.weight_g||'',priority:p.priority||3,family:p.family||'',activate:!!p.needs_setup})}>{ed?.id===p.id?'✕':'✎'}</button>
             {dept&&<button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api('/api/products/'+p.id,'DELETE'),"So'rov yuborildi")}>🗑</button>}
           </span>
         </div>
         {ed?.id===p.id&&<div className="inline-edit">
-          <ProductFields f={ed} setF={setEd} dept={dept} tree={tree} onPick={pickFor(setEd)} onSave={saveEdit} onCancel={()=>setEd(null)}/>
+          <ProductFields f={ed} setF={setEd} dept={dept} tree={tree} families={d.families} onPick={pickFor(setEd)} onSave={saveEdit} onCancel={()=>setEd(null)} saveLabel={ed.needs_setup&&ed.activate?"Saqlash va faollashtirish":undefined}/>
         </div>}
         {d.warehouseEnabled&&d.role==='superadmin'&&<input className="in" style={{marginTop:8,marginBottom:0}} type="number" placeholder="Ombor qoldig'i" defaultValue={p.stock??''} onBlur={e=>{
           const val=e.target.value===''?null:e.target.value
@@ -1666,6 +1866,7 @@ function Settings({d,act,onPreviewAnim}){
   return <><div className="card"><h2>{t("🚚 Yetkazib berish")}</h2>
     <label className="row"><span>Yoqilgan</span><input type="checkbox" checked={!!s.enabled} onChange={e=>setS({...s,enabled:e.target.checked})}/></label>
     <label className="m">Minimal buyurtma summasi (so'm)<input className="in" type="text" inputMode="numeric" value={s.minTotal||''} onChange={e=>setS({...s,minTotal:digits(e.target.value)})}/></label>
+    <label className="m">Maksimal og'irlik (kg, 0 = cheklovsiz)<input className="in" type="text" inputMode="decimal" placeholder="Masalan: 15" value={s.maxKg??''} onChange={e=>setS({...s,maxKg:e.target.value.replace(/[^0-9.,]/g,'').replace(',','.')})}/></label>
     <label className="m">Mijozga izoh<input className="in" value={s.note||''} onChange={e=>setS({...s,note:e.target.value})}/></label>
     <div className="m" style={{marginBottom:8}}>Mijoz manzilni yozadi, administrator telefon orqali bog'lanib tasdiqlaydi yoki rad etadi.</div>
     <button className="btn s" onClick={()=>act(()=>api('/api/settings/delivery','PUT',s),'Saqlandi')}>{t("Saqlash")}</button></div>
@@ -1763,15 +1964,15 @@ function AdminSecurity({act,say}){
   </>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'role.set':'Rol berildi','role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
-const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(product|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'products.sync':'📥 POS / CSV sinxronizatsiya','role.set':'Rol berildi','role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
   const {t,so}=useLang()
   const [a,setA]=useState([]),[g,setG]=useState('all'),[per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   useEffect(()=>{api(`/api/audit?from=${from}&to=${to}`).then(setA).catch(()=>{})},[from,to])
   const G=AG.find(x=>x[0]===g),list=G[2]?a.filter(x=>G[2].test(x.action)):a,col=x=>(AG.find(z=>z[2]&&z[2].test(x.action))||AG[0])[3]
-  const adet=x=>{const z=x.detail||{};if(z.reason)return z.reason+(z.ip?' · '+z.ip:'');if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
+  const adet=x=>{const z=x.detail||{};if(z.updated!=null&&z.created!=null)return `🔄 ${z.updated} yangilandi · 🆕 ${z.created} yangi`;if(z.reason)return z.reason+(z.ip?' · '+z.ip:'');if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     <div className="chips">{AG.map(([k,l])=><button key={k} className={'chip'+(g===k?' on':'')} onClick={()=>setG(k)}>{t(l)}</button>)}</div>
@@ -1782,10 +1983,13 @@ function Audit(){
 function Admin({d,act,say,onPreviewAnim}){
   const {t}=useLang()
   const isW=d.role==='worker',canBc=d.role==='superadmin'||!!d.user.canBroadcast
-  const tabs=isW?[['p','Tovarlar']]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p','Tovarlar'],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],...(canBc?[['b','Xabarlar']]:[]),['m','Mijozlar'],['x',t('Xavfsizlik')+(d.blockedCount?` (${d.blockedCount})`:'')],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
+  const prodLbl=t('Tovarlar')+(d.setupCount?` (🆕 ${d.setupCount})`:'')
+  const tabs=isW?[['p',prodLbl]]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p',prodLbl],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],...(canBc?[['b','Xabarlar']]:[]),['m','Mijozlar'],['x',t('Xavfsizlik')+(d.blockedCount?` (${d.blockedCount})`:'')],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
   const [tb,setT]=useState(tabs[0][0])
-  return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>setT(k)}>{(k==='k'||k==='x')?l:t(l)}</button>)}</div>
-    {tb==='d'&&<Dash/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say}/>}{tb==='p'&&<Products d={d} act={act}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
+  const [navOpts,setNavOpts]=useState({})
+  const navTo=(target,opts={})=>{setNavOpts(opts);setT(target);scrollTo({top:0})}
+  return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>{setNavOpts({});setT(k)}}>{(k==='p'||k==='k'||k==='x')?l:t(l)}</button>)}</div>
+    {tb==='d'&&<Dash onNav={navTo}/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say} initFilter={navOpts.orderFilter}/>}{tb==='p'&&<Products d={d} act={act} say={say} initState={navOpts.prodState} initCat={navOpts.prodCat}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
 export default function App(){
