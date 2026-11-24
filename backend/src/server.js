@@ -125,19 +125,20 @@ app.use('/api',S.ipShield,auth,S.ddosGuard);
 
 app.get('/api/init',wrap(async(req,res)=>{
  const m=req.me,staff=STAFF.includes(m.role),isAdm=ADM.includes(m.role);
- const [pub,ordR,pcR,bcR,suR,ppR,rlR]=await Promise.all([
+ const [pub,ordR,pcR,bcR,suR,ppR,rlR,crR]=await Promise.all([
   getPub(),
   q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'min_grams',p.min_grams,'min_sum',p.min_sum,'weight_g',p.weight_g,'priority',p.priority,'family',p.family,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit ${staff?200:50}`,staff?[]:[m.tg_id]),
   isAdm?q("select count(*)::int c from users where card_status='pending'"):null,
   isAdm?q('select count(*)::int c from blocked_users where expires_at is null or expires_at>now()'):null,
   isAdm?q('select count(*)::int c from products where needs_setup'):null,
   isAdm?q('select * from pending_changes order by id'):null,
-  m.role==='superadmin'?q("select tg_id,name,role,department,coalesce(can_broadcast,false) can_broadcast from users where role<>'user'"):null
+  m.role==='superadmin'?q("select tg_id,name,role,role_title,department,coalesce(can_broadcast,false) can_broadcast from users where role<>'user'"):null,
+  m.role==='superadmin'?q("select value from settings where key='custom_roles'"):null
  ]);
  const d=pub.d;
  res.json({
   role:m.role,workerDepartment:m.department,
-  user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',canBroadcast:m.role==='superadmin'||(m.role==='admin'&&!!m.can_broadcast),cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},
+  user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',roleTitle:m.role_title||null,canBroadcast:m.role==='superadmin'||(m.role==='admin'&&!!m.can_broadcast),cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},
   warehouseEnabled:pub.wh,saleCount:pub.saleCount,
   pendingCardsCount:pcR?pcR.rows[0].c:0,
   blockedCount:bcR?bcR.rows[0].c:0,
@@ -145,7 +146,8 @@ app.get('/api/init',wrap(async(req,res)=>{
   settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
   cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,orders:ordR.rows,
   pendingProducts:ppR?ppR.rows:[],
-  roles:rlR?rlR.rows:null
+  roles:rlR?rlR.rows:null,
+  customRoles:crR&&Array.isArray(crR.rows[0]?.value)?crR.rows[0].value:[]
  });
 }));
 
@@ -227,14 +229,38 @@ app.put('/api/settings/warehouse',need('superadmin'),wrap(async(req,res)=>{const
 app.put('/api/settings/animation',need('superadmin'),wrap(async(req,res)=>{const ok=['none','newyear','navruz','ramazon','autumn','confetti'];const preset=ok.includes(req.body.preset)?req.body.preset:'none';const v={preset};await setSetting('animation',v);bustPub();await audit(req.me.tg_id,'settings.animation','settings',v);res.json(v)}));
 app.put('/api/products/:id/stock',need('superadmin'),wrap(async(req,res)=>{if(!(await getSetting('warehouse')).enabled)return res.status(400).json({error:'Ombor tizimi yoqilmagan'});
  await q('update products set stock=$1 where id=$2',[req.body.stock==null?null:Number(req.body.stock),+req.params.id]);await audit(req.me.tg_id,'product.stock','product:'+req.params.id,req.body);res.json({success:true})}));
-app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,name,department,canBroadcast}=req.body;
+app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,roleTitle,name,department,canBroadcast}=req.body;
  if(!['user','worker','operator','admin'].includes(role)||!Number(targetId))return res.status(400).json({error:"Noto'g'ri"});
  const ex=(await q('select role from users where tg_id=$1',[targetId])).rows[0];
  if(ex?.role==='superadmin')return res.status(403).json({error:"Super Admin rolini o'zgartirib bo'lmaydi"});
  const cb=role==='admin'?!!canBroadcast:false;
- await q("insert into users(tg_id,name,role,department,can_broadcast) values($1,$2,$3,$4,$5) on conflict(tg_id) do update set role=$3,department=$4,can_broadcast=$5,name=coalesce(nullif($2,''),users.name)",[targetId,name||'',role,role==='worker'?department:null,cb]);
+ const rt=role==='user'?null:(String(roleTitle||'').trim().slice(0,40)||null);
+ await q("insert into users(tg_id,name,role,role_title,department,can_broadcast) values($1,$2,$3,$4,$5,$6) on conflict(tg_id) do update set role=$3,role_title=$4,department=$5,can_broadcast=$6,name=coalesce(nullif($2,''),users.name)",[targetId,name||'',role,rt,role==='worker'?department:null,cb]);
  bustUser(targetId);
- await audit(req.me.tg_id,'role.set','user:'+targetId,{role,department,canBroadcast:cb});res.json({success:true})}));
+ await audit(req.me.tg_id,'role.set','user:'+targetId,{role,roleTitle:rt,department,canBroadcast:cb});res.json({success:true})}));
+app.post('/api/custom-roles',need('superadmin'),wrap(async(req,res)=>{
+ const name=String(req.body.name||'').trim().slice(0,40);
+ const base=['worker','operator','admin'].includes(req.body.base)?req.body.base:'operator';
+ const icon=String(req.body.icon||'👤').trim().slice(0,8)||'👤';
+ const canBroadcast=base==='admin'?!!req.body.canBroadcast:false;
+ if(name.length<2)return res.status(400).json({error:'Rol nomini kiriting'});
+ const row=(await q("select value from settings where key='custom_roles'")).rows[0];
+ const list=Array.isArray(row?.value)?[...row.value]:[];
+ const id='cr_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+ const item={id,name,base,icon,canBroadcast};
+ const next=[...list.filter(x=>x.name.toLowerCase()!==name.toLowerCase()),item].slice(-30);
+ await setSetting('custom_roles',next);
+ await audit(req.me.tg_id,'role.custom_add','settings',{name,base});
+ res.json({item,customRoles:next});
+}));
+app.delete('/api/custom-roles/:id',need('superadmin'),wrap(async(req,res)=>{
+ const id=String(req.params.id||'');
+ const row=(await q("select value from settings where key='custom_roles'")).rows[0];
+ const list=Array.isArray(row?.value)?row.value.filter(x=>x.id!==id):[];
+ await setSetting('custom_roles',list);
+ await audit(req.me.tg_id,'role.custom_delete','settings',{id});
+ res.json({customRoles:list});
+}));
 app.put('/api/roles/:tgId/broadcast',need('superadmin'),wrap(async(req,res)=>{const tid=req.params.tgId,cb=!!req.body.canBroadcast;
  await q("update users set can_broadcast=$1 where tg_id=$2 and role='admin'",[cb,tid]);
  bustUser(tid);
@@ -291,6 +317,26 @@ app.get('/api/admin/products',need('worker','operator',...ADM),wrap(async(req,re
  if(st==='on')w.push('active');if(st==='off')w.push('not active');if(st==='sale')w.push(SALE_SQL);if(st==='setup')w.push('needs_setup');
  const r=(await q(`select ${PSEL},active,stock,barcode,needs_setup from products where ${w.join(' and ')} order by needs_setup desc,coalesce(priority,3) asc,coalesce(sales_count,0) desc,name limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
+app.get('/api/admin/products/:id/analytics',need(...ADM),wrap(async(req,res)=>{
+ const id=+req.params.id;
+ if(!(id>0))return res.status(400).json({error:"Noto'g'ri ID"});
+ const p=(await q(`select ${PSEL},active,stock,barcode,needs_setup from products where id=$1`,[id])).rows[0];
+ if(!p)return res.status(404).json({error:'Mahsulot topilmadi'});
+ const [totR,recR,dayR,rkR]=await Promise.all([
+  q(`select coalesce(sum(i.qty),0)::numeric qty,coalesce(sum(coalesce(i.actual_sum,i.ordered_sum)),0)::bigint revenue,count(distinct o.id)::int orders,count(distinct o.user_id)::int buyers,max(o.created_at) last_order from order_items i join orders o on o.id=i.order_id and o.status<>'cancelled' where i.product_id=$1`,[id]),
+  q(`select coalesce(sum(i.qty) filter(where o.created_at>now()-interval '7 days'),0)::numeric qty7,coalesce(sum(coalesce(i.actual_sum,i.ordered_sum)) filter(where o.created_at>now()-interval '7 days'),0)::bigint rev7,coalesce(sum(i.qty) filter(where o.created_at>now()-interval '30 days'),0)::numeric qty30,coalesce(sum(coalesce(i.actual_sum,i.ordered_sum)) filter(where o.created_at>now()-interval '30 days'),0)::bigint rev30 from order_items i join orders o on o.id=i.order_id and o.status<>'cancelled' where i.product_id=$1`,[id]),
+  q(`select to_char(o.created_at at time zone 'Asia/Tashkent','YYYY-MM-DD') d,coalesce(sum(i.qty),0)::numeric qty,coalesce(sum(coalesce(i.actual_sum,i.ordered_sum)),0)::bigint sum from order_items i join orders o on o.id=i.order_id and o.status<>'cancelled' and o.created_at>now()-interval '14 days' where i.product_id=$1 group by 1 order by 1`,[id]),
+  q(`select count(*) filter(where active)::int total,1+count(*) filter(where active and (coalesce(priority,3)<$2 or (coalesce(priority,3)=$2 and coalesce(sales_count,0)>$3) or (coalesce(priority,3)=$2 and coalesce(sales_count,0)=$3 and name<$4)))::int pos from products where category=$1`,[p.category,p.priority||3,p.sales_count||0,p.name])
+ ]);
+ const t=totR.rows[0],rc=recR.rows[0],rk=rkR.rows[0];
+ res.json({
+  product:p,
+  totals:{qty:Number(t.qty)||0,revenue:Number(t.revenue)||0,orders:t.orders||0,buyers:t.buyers||0,lastOrder:t.last_order||null},
+  recent:{qty7:Number(rc.qty7)||0,rev7:Number(rc.rev7)||0,qty30:Number(rc.qty30)||0,rev30:Number(rc.rev30)||0},
+  days:dayR.rows.map(x=>({d:x.d,qty:Number(x.qty)||0,sum:Number(x.sum)||0})),
+  rank:{inCat:p.active?rk.pos:null,totalInCat:rk.total||0}
+ });
+}));
 app.get('/api/recommend',wrap(async(req,res)=>{const cats=String(req.query.cats||'').split('|').filter(Boolean).slice(0,6),ex=String(req.query.ex||'').split(',').map(Number).filter(Boolean).slice(0,60);
  res.json((await q(`select ${PSEL} from products where active and unit='piece' and category=any($1::text[]) and id<>all($2::int[]) order by random() limit 12`,[cats,ex])).rows)}));
 app.put('/api/products/:id/active',need(...ADM),wrap(async(req,res)=>{await q('update products set active=$1 where id=$2',[!!req.body.active,+req.params.id]);bustPub();await audit(req.me.tg_id,'product.active','product:'+req.params.id,{active:!!req.body.active});res.json({success:true})}));
