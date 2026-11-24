@@ -20,25 +20,36 @@ exports.createOrder=async(me,b)=>{
  const phone=me.phone||normPhone(b.phone);
  if(!phone)throw bad('Buyurtma berish uchun telefon raqamingizni kiriting');
  const wh=(await getSetting('warehouse')).enabled,c=await pool.connect();
- try{await c.query('begin');const lines=[];let subtotal=0,age=0;
+ try{await c.query('begin');const lines=[];let subtotal=0,age=0,orderKg=0;
   if(!me.phone)await c.query('update users set phone=$1 where tg_id=$2',[phone,me.tg_id]);
   for(const it of b.items){
    if(it.bundleId){const bd=(await c.query("select b.*,(select string_agg(p.name||' ×'||bi.qty::text,', ') from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id) comp from bundles b where id=$1 and active",[Number(it.bundleId)])).rows[0];if(!bd)throw bad('Nabor topilmadi');const bq=Number(it.qty);if(!Number.isInteger(bq)||bq<1||bq>20)throw bad("Nabor soni noto'g'ri");subtotal+=bd.price*bq;lines.push([{id:null,name:'🎁 '+bd.title+(bd.comp?' ('+bd.comp+')':''),unit:'piece',price:bd.price},bq,bd.price*bq]);continue}
    const p=(await c.query('select * from products where id=$1 and active for update',[Number(it.productId??it.id)])).rows[0];
    if(!p)throw bad('Mahsulot topilmadi');age=Math.max(age,p.age_min||0);const up=effPrice(p);let qty,sum;
-   if(p.unit==='weight'&&p.min_grams>0){const g=Math.round(Number(it.grams));if(!(g>=p.min_grams&&g<=20000&&g%50===0))throw bad(`${p.name}: og'irlik noto'g'ri`);qty=g/1000;sum=Math.round(up*g/1000)}else if(p.unit==='weight'){sum=Math.round(Number(it.sum));if(!(sum>=1000&&sum<=5000000))throw bad(`${p.name}: summa noto'g'ri`);qty=Math.round(sum/up*1000)/1000}
-   else{qty=Number(it.qty);if(!Number.isInteger(qty)||qty<1||qty>500)throw bad(`${p.name}: soni noto'g'ri`);sum=qty*up}
+   if(p.unit==='weight'&&p.min_grams>0){const g=Math.round(Number(it.grams));if(!(g>=p.min_grams&&g<=20000&&g%50===0))throw bad(`${p.name}: og'irlik noto'g'ri`);qty=g/1000;sum=Math.round(up*g/1000);orderKg+=qty}
+   else if(p.unit==='weight'){const minS=Math.max(1000,Number(p.min_sum)||0);sum=Math.round(Number(it.sum));if(!(sum>=minS&&sum<=5000000))throw bad(`${p.name}: minimal summa ${minS.toLocaleString('ru-RU')} so'm`);qty=Math.round(sum/up*1000)/1000;orderKg+=qty}
+   else{qty=Number(it.qty);if(!Number.isInteger(qty)||qty<1||qty>500)throw bad(`${p.name}: soni noto'g'ri`);sum=qty*up;if(p.weight_g>0)orderKg+=(p.weight_g*qty)/1000}
    if(wh&&p.stock!==null){if(Number(p.stock)<qty)throw bad(`${p.name}: omborda yetarli emas`);await c.query('update products set stock=stock-$1 where id=$2',[qty,p.id])}
    subtotal+=sum;lines.push([{...p,price:up},qty,sum]);
   }
   let fee=0,type='pickup';
-  if(b.type==='delivery'){const dv=await getSetting('delivery');if(!dv.enabled)throw bad("Yetkazib berish hozir o'chirilgan");if(subtotal<(dv.minTotal||0))throw bad(`Yetkazib berish ${(dv.minTotal||0).toLocaleString('ru-RU')} so'mdan boshlanadi`);if(String(b.address||'').trim().length<5)throw bad('Manzilni yozing');type='delivery'}
+  if(b.type==='delivery'){
+   const dv=await getSetting('delivery');
+   if(!dv.enabled)throw bad("Yetkazib berish hozir o'chirilgan");
+   if(subtotal<(dv.minTotal||0))throw bad(`Yetkazib berish ${(dv.minTotal||0).toLocaleString('ru-RU')} so'mdan boshlanadi`);
+   if(dv.maxKg>0&&orderKg>dv.maxKg)throw bad(`Yetkazib berish maksimal ${dv.maxKg} kg gacha (savatingiz: ${orderKg.toFixed(1)} kg)`);
+   if(String(b.address||'').trim().length<5)throw bad('Manzilni yozing');
+   type='delivery';
+  }
   const code=String(1000+Math.floor(Math.random()*9000));
   const cardNum=me.card_status==='active'&&me.card_number?me.card_number:null;
   const o=(await c.query('insert into orders(code,user_id,name,phone,type,address,lat,lng,delivery_fee,subtotal,total,card_number) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10::int+$9::int,$11) returning *',[code,me.tg_id,me.name,phone,type,String(b.address||'').slice(0,300),b.lat||null,b.lng||null,fee,subtotal,cardNum])).rows[0];
-  for(const [p,qty,sum] of lines)await c.query('insert into order_items(order_id,product_id,name,unit,unit_price,qty,ordered_sum) values($1,$2,$3,$4,$5,$6,$7)',[o.id,p.id,p.name,p.unit,p.price,qty,sum]);
+  for(const [p,qty,sum] of lines){
+   await c.query('insert into order_items(order_id,product_id,name,unit,unit_price,qty,ordered_sum) values($1,$2,$3,$4,$5,$6,$7)',[o.id,p.id,p.name,p.unit,p.price,qty,sum]);
+   if(p.id)await c.query('update products set sales_count=coalesce(sales_count,0)+1 where id=$1',[p.id]);
+  }
   if(age>0){await c.query("update orders set status='age_check' where id=$1",[o.id]);o.status='age_check'}
-  await c.query('commit');await audit(me.tg_id,'order.create','order:'+o.id,{total:o.total,age,card:cardNum});
+  await c.query('commit');await audit(me.tg_id,'order.create','order:'+o.id,{total:o.total,age,card:cardNum,kg:Math.round(orderKg*10)/10});
   if(age>0)N.ageCheck(o,age);else N.newOrder(o,lines.map(([p,qty,sum])=>({name:p.name,unit:p.unit,qty,sum})));return o;
  }catch(e){await c.query('rollback');throw e}finally{c.release()}
 };
@@ -78,17 +89,42 @@ exports.confirm=async(userId,id,yes)=>{
  await audit(userId,yes?'order.confirm_price':'order.reject_price','order:'+id);N.confirmDone(o,yes);
 };
 const parseSale=(price,sp,su)=>{const n=Math.round(Number(sp)||0);if(!(n>0&&n<price))return{sale_price:null,sale_until:null};let dt=null;if(su){const d=new Date(su);if(!Number.isNaN(d.getTime()))dt=d.toISOString()}return{sale_price:n,sale_until:dt}};
+const clampPrio=v=>{const n=Math.round(Number(v)||3);return Math.max(1,Math.min(5,n))};
 exports.saveProduct=async(me,body,id)=>{
  const price=Math.round(Number(body.price));
  const sl=parseSale(price,body.sale_price,body.sale_until);
- const d={name:String(body.name||'').trim().slice(0,120),price,unit:body.unit==='weight'?'weight':'piece',image:body.image||null,category:body.category,name_uz:String(body.name_uz||'').trim().slice(0,120)||null,description:String(body.description||'').slice(0,600)||null,min_grams:Math.max(0,Math.min(5000,Math.round(Number(body.min_grams))||0)),age_min:Math.max(0,Math.min(99,Math.round(Number(body.age_min))||0)),barcode:String(body.barcode||'').trim().slice(0,64)||null,sale_price:sl.sale_price,sale_until:sl.sale_until};
+ const d={
+  name:String(body.name||'').trim().slice(0,120),
+  price,
+  unit:body.unit==='weight'?'weight':'piece',
+  image:body.image||null,
+  category:body.category||'Boshqa',
+  name_uz:String(body.name_uz||'').trim().slice(0,120)||null,
+  description:String(body.description||'').slice(0,600)||null,
+  min_grams:Math.max(0,Math.min(5000,Math.round(Number(body.min_grams))||0)),
+  min_sum:Math.max(0,Math.min(1000000,Math.round(Number(body.min_sum))||0)),
+  weight_g:Math.max(0,Math.min(100000,Math.round(Number(body.weight_g))||0)),
+  priority:clampPrio(body.priority),
+  family:String(body.family||'').trim().slice(0,60)||null,
+  age_min:Math.max(0,Math.min(99,Math.round(Number(body.age_min))||0)),
+  barcode:String(body.barcode||'').trim().slice(0,64)||null,
+  sale_price:sl.sale_price,
+  sale_until:sl.sale_until
+ };
  if(!d.name||!(d.price>0))throw bad("Nom va narx noto'g'ri");
  if(me.role==='worker'){d.category=me.department;
   const r=(await q("insert into pending_changes(action,product,worker_id,worker_name,department) values($1,$2,$3,$4,$5) returning *",[id?'edit':'add',{...d,id},me.tg_id,me.name,me.department])).rows[0];
   await audit(me.tg_id,'product.request','change:'+r.id,d);N.pending(r);return{pending:true}}
  const isEdit=!!id;
- if(isEdit)await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),category=$5,age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11,sale_price=$12,sale_until=$13 where id=$6',[d.name,d.price,d.unit,d.image,d.category,id,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode,d.sale_price,d.sale_until]);
- else id=(await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode,sale_price,sale_until) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id',[d.name,d.price,d.unit,d.image,d.category,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode,d.sale_price,d.sale_until])).rows[0].id;
+ const activate=body.activate===true;
+ if(isEdit)await q(
+  `update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),category=$5,age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11,sale_price=$12,sale_until=$13,min_sum=$14,weight_g=$15,priority=$16,family=$17,needs_setup=false${activate?',active=true':''} where id=$6`,
+  [d.name,d.price,d.unit,d.image,d.category,id,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode,d.sale_price,d.sale_until,d.min_sum,d.weight_g,d.priority,d.family]
+ );
+ else id=(await q(
+  'insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode,sale_price,sale_until,min_sum,weight_g,priority,family,needs_setup) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,false) returning id',
+  [d.name,d.price,d.unit,d.image,d.category,d.age_min,d.name_uz,d.description,d.min_grams,d.barcode,d.sale_price,d.sale_until,d.min_sum,d.weight_g,d.priority,d.family]
+ )).rows[0].id;
  await audit(me.tg_id,isEdit?'product.save':'product.add','product:'+id,d);return{id};
 };
 exports.deleteProduct=async(me,id)=>{
@@ -100,10 +136,68 @@ exports.deleteProduct=async(me,id)=>{
 exports.resolveChange=async(actor,id,ok)=>{
  const r=(await q('delete from pending_changes where id=$1 returning *',[id])).rows[0];if(!r)throw bad("So'rov topilmadi");
  if(ok){const p=r.product;
-  if(r.action==='add')await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode,sale_price,sale_until) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[p.name,p.price,p.unit,p.image,p.category,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null,p.sale_price||null,p.sale_until||null]);
-  else if(r.action==='edit')await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11,sale_price=$12,sale_until=$13 where id=$5 and category=$6',[p.name,p.price,p.unit,p.image,p.id,r.department,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null,p.sale_price||null,p.sale_until||null]);
+  if(r.action==='add')await q('insert into products(name,price,unit,image,category,age_min,name_uz,description,min_grams,barcode,sale_price,sale_until,min_sum,weight_g,priority,family,needs_setup) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,false)',[p.name,p.price,p.unit,p.image,p.category,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null,p.sale_price||null,p.sale_until||null,p.min_sum||0,p.weight_g||0,clampPrio(p.priority),p.family||null]);
+  else if(r.action==='edit')await q('update products set name=$1,price=$2,unit=$3,image=coalesce($4,image),age_min=$7,name_uz=$8,description=$9,min_grams=$10,barcode=$11,sale_price=$12,sale_until=$13,min_sum=$14,weight_g=$15,priority=$16,family=$17,needs_setup=false where id=$5 and category=$6',[p.name,p.price,p.unit,p.image,p.id,r.department,p.age_min||0,p.name_uz||null,p.description||null,p.min_grams||0,p.barcode||null,p.sale_price||null,p.sale_until||null,p.min_sum||0,p.weight_g||0,clampPrio(p.priority),p.family||null]);
   else await q('update products set active=false where id=$1 and category=$2',[p.id,r.department])}
  await audit(actor,ok?'change.approve':'change.reject','change:'+id,r.product);N.changeResolved(r,ok);
+};
+
+/* One-way Store POS -> Mini App product sync (updates price/stock/active, flags new products for setup, never overwrites photo/category/priority/family) */
+exports.syncProducts=async(actorId,rawItems,opts={})=>{
+ if(!Array.isArray(rawItems)||!rawItems.length)throw bad("Mahsulotlar ro'yxati bo'sh");
+ const items=rawItems.slice(0,50000);
+ const existing=(await q('select id,barcode,name,price,stock,active,needs_setup from products')).rows;
+ const byBc=new Map(),byName=new Map();
+ for(const r of existing){
+  if(r.barcode)byBc.set(String(r.barcode).trim(),r);
+  if(r.name)byName.set(String(r.name).trim().toLowerCase(),r);
+ }
+ let updated=0,activated=0,deactivated=0,created=0,skipped=0;
+ const autoActive=opts.autoActive!==false;
+ const c=await pool.connect();
+ try{
+  await c.query('begin');
+  for(const raw of items){
+   const name=String(raw.name||'').trim().slice(0,120);
+   const barcode=String(raw.barcode||'').trim().slice(0,64)||null;
+   const price=Math.round(Number(String(raw.price??'').replace(/[^\d.]/g,''))||0);
+   const stockNum=raw.stock===undefined||raw.stock===null||raw.stock===''?null:Number(String(raw.stock).replace(',','.').replace(/[^\d.-]/g,''));
+   const stock=stockNum!==null&&Number.isFinite(stockNum)?Math.max(0,stockNum):null;
+   if((!name&&!barcode)||!(price>0)){skipped++;continue}
+   const match=(barcode&&byBc.get(barcode))||(name&&byName.get(name.toLowerCase()));
+   if(match){
+    const nextStock=stock!==null?stock:match.stock;
+    let nextActive=match.active;
+    if(autoActive&&stock!==null&&!match.needs_setup){
+     nextActive=stock>0;
+    }
+    const changed=match.price!==price||Number(match.stock)!==Number(nextStock)||match.active!==nextActive||(barcode&&!match.barcode);
+    if(changed){
+     await c.query('update products set price=$1,stock=$2,active=$3,barcode=coalesce(barcode,$4) where id=$5',[price,nextStock,nextActive,barcode,match.id]);
+     updated++;
+     if(!match.active&&nextActive)activated++;
+     if(match.active&&!nextActive)deactivated++;
+     match.price=price;match.stock=nextStock;match.active=nextActive;
+     if(barcode&&!match.barcode){match.barcode=barcode;byBc.set(barcode,match)}
+    }
+   }else{
+    if(!name){skipped++;continue}
+    const isW=raw.unit==='weight'||/(^|[\s.,(\/])(вес|весов|весовой|кг|kg)\.?$/i.test(name);
+    const unit=isW?'weight':'piece';
+    const ins=(await c.query(
+     "insert into products(name,price,unit,category,barcode,stock,active,priority,needs_setup) values($1,$2,$3,'Boshqa',$4,$5,false,3,true) returning id,barcode,name,price,stock,active,needs_setup",
+     [name,price,unit,barcode,stock]
+    )).rows[0];
+    created++;
+    if(barcode)byBc.set(barcode,ins);
+    byName.set(name.toLowerCase(),ins);
+   }
+  }
+  await c.query('commit');
+ }catch(e){await c.query('rollback');throw e}finally{c.release()}
+ const res={total:items.length,updated,activated,deactivated,created,skipped};
+ await audit(actorId||0,'products.sync','products',res);
+ return res;
 };
 exports.ageConfirm=async(userId,id,yes)=>{const o=(await q('select * from orders where id=$1 and user_id=$2',[id,userId])).rows[0];if(!o||o.status!=='age_check')throw bad("So'rov topilmadi");
  if(!yes){await q("update orders set status='cancelled',age_confirmed=false where id=$1",[id]);await restock(id);await audit(userId,'order.age_denied','order:'+id);N.statusChanged({...o,status:'cancelled'});return}
