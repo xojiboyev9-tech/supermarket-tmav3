@@ -101,6 +101,9 @@ alter table products add column if not exists needs_setup boolean default false;
 create index if not exists products_rank_idx on products(active,priority asc,sales_count desc,name asc);
 create index if not exists products_family_idx on products(family) where family is not null;
 create index if not exists products_setup_idx on products(needs_setup) where needs_setup;
+alter table users add column if not exists role_title text;
+insert into settings values('custom_roles','[]') on conflict do nothing;
+create index if not exists order_items_prod_idx on order_items(product_id);
 
 
 

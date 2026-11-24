@@ -82,7 +82,10 @@ const RU={
   "Taxminiy og'irlik":"Примерный вес","Maksimal og'irlik":"Максимальный вес",
   "Oila / Guruh":"Семейство / Группа","Sozlash kerak":"Нужна настройка",
   "Kundalik ehtiyoj":"Повседневные","Nonushta":"Завтрак","Oilaviy":"Семейные",
-  "Bolalar uchun":"Для детей","Bayramona":"Праздничные"
+  "Bolalar uchun":"Для детей","Bayramona":"Праздничные",
+  "Ko'rinish":"Товар","Tahlil":"Анализ",
+  "Yangi rol qo'shish":"Добавить новую роль","Yangi katalog qo'shish":"Добавить новую категорию",
+  "Rolni tanlang":"Выберите роль","Katalogni tanlang":"Выберите категорию"
 }
 
 const FAM_PRESETS=['Kundalik ehtiyoj','Nonushta','Oilaviy','Bolalar uchun','Bayramona','Premium']
@@ -435,7 +438,174 @@ function BundleCarousel({bundles,onOpen,actionBtn}){
   </>
 }
 
-function WeightSheet({p,cur,close,set}){
+const ROLE_ICONS=['🧾','📋','🚚','📦','🧑‍💼','🏷️','🛒','⭐','🛡️','🎧']
+const ROLE_BASE_LBL={worker:"Bo'lim ishchisi",operator:'Operator',admin:'Admin'}
+
+function ModernSelect({value,options,onChange,title,placeholder,style,searchable,createLabel,renderCreate,onDeleteOption}){
+  const {t}=useLang()
+  const [open,setOpen]=useState(false),[sq,setSq]=useState(''),[adding,setAdding]=useState(false)
+  const cur=options.find(o=>String(o.value)===String(value))
+  const showSearch=searchable??options.length>=6
+  const filtered=sq.trim()?options.filter(o=>`${o.label} ${o.sub||''}`.toLowerCase().includes(sq.trim().toLowerCase())):options
+  const close=()=>{setOpen(false);setSq('');setAdding(false)}
+  return <>
+    <button type="button" className="msel" style={style} onClick={()=>setOpen(true)}>
+      <span className="msel-l">
+        {cur?.icon&&<span className="msel-ico">{cur.icon}</span>}
+        <span className={'msel-txt'+(!cur?' msel-ph':'')}>{cur?cur.label:(placeholder||t('Tanlang'))}</span>
+      </span>
+      <span className="msel-arr"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+    </button>
+    {open&&<div className="sheet picker-sheet" onClick={close}>
+      <div className="picker-box" onClick={e=>e.stopPropagation()}>
+        <div className="sheet-handle"/>
+        <div className="pick-head">
+          <h2>{title||placeholder||t('Tanlang')}</h2>
+          <button type="button" className="pick-close" onClick={close}>✕</button>
+        </div>
+        {showSearch&&<input className="in" style={{marginBottom:8}} placeholder="🔍 Qidirish..." value={sq} onChange={e=>setSq(e.target.value)}/>}
+        <div className="pick-list">
+          {filtered.map(o=>{
+            const sel=String(o.value)===String(value)
+            return <div key={String(o.value)} className={'pick-row'+(sel?' on':'')} style={o.indent?{marginLeft:o.indent*14}:undefined} onClick={()=>{onChange(o.value,o);close()}}>
+              <div className="pick-row-l">
+                {o.icon&&<span className="pick-ico">{o.icon}</span>}
+                <div className="pick-lbl">
+                  <b>{o.label}</b>
+                  {o.sub&&<small>{o.sub}</small>}
+                </div>
+              </div>
+              <div className="pick-r">
+                {o.deletable&&onDeleteOption&&<button type="button" className="pick-del" onClick={e=>{e.stopPropagation();onDeleteOption(o)}}>🗑</button>}
+                <span className="pick-chk">{sel?'✓':''}</span>
+              </div>
+            </div>
+          })}
+          {!filtered.length&&<div className="m" style={{textAlign:'center',padding:'16px 0'}}>{t("Hech narsa topilmadi")}</div>}
+        </div>
+        {renderCreate&&(!adding
+          ?<button type="button" className="pick-add-btn" onClick={()=>setAdding(true)}>➕ {createLabel||t("Qo'shish")}</button>
+          :<div className="pick-create">
+            {renderCreate(()=>setAdding(false),(val,opt)=>{onChange(val,opt);close()})}
+          </div>)}
+      </div>
+    </div>}
+  </>
+}
+
+function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel,exclude,maxDepth,title,style}){
+  const {t,cn}=useLang()
+  const tree=buildCatTree(cats||[])
+  const [nUz,setNUz]=useState(''),[nRu,setNRu]=useState(''),[nPar,setNPar]=useState(''),[busy,setBusy]=useState(false),[err,setErr]=useState('')
+  const flat=tree.flat.filter(c=>(!exclude||!exclude(c))&&(maxDepth===undefined||c.depth<maxDepth))
+  const options=[
+    ...(includeNone?[{value:'',label:noneLabel||t("Asosiy kategoriya (yo'q)"),icon:'🗂'}]:[]),
+    ...flat.map(c=>({
+      value:c.name,
+      label:cn(c),
+      sub:c.parent?`↳ ${c.parent}`:(c.name_ru&&cn(c)!==c.name_ru?c.name_ru:''),
+      icon:EMO[c.name]||(c.depth?'📁':'🛒'),
+      indent:c.depth
+    }))
+  ]
+  const createCat=async(closeForm,pick)=>{
+    const nm=nUz.trim();if(!nm){setErr('Nomini kiriting');return}
+    setBusy(true);setErr('')
+    try{
+      await api('/api/cats','POST',{name:nm,name_ru:nRu.trim(),parent:nPar||''})
+      if(onReload)await onReload()
+      setNUz('');setNRu('');setNPar('')
+      closeForm();pick(nm)
+    }catch(e){setErr(e.message)}
+    setBusy(false)
+  }
+  return <ModernSelect
+    value={value}
+    options={options}
+    onChange={onChange}
+    title={title||t("Katalogni tanlang")}
+    placeholder={t("Katalogni tanlang")}
+    style={style}
+    searchable={options.length>=5}
+    createLabel={canCreate?t("Yangi katalog qo'shish"):undefined}
+    renderCreate={canCreate?(closeForm,pick)=><>
+      <div className="pick-create-h"><span>➕ {t("Yangi katalog qo'shish")}</span><button type="button" className="sec-link" style={{fontSize:12}} onClick={closeForm}>✕</button></div>
+      <input className="in" placeholder="Nomi (o'zbekcha)" value={nUz} onChange={e=>setNUz(e.target.value)}/>
+      <input className="in" placeholder="Название (русский, ixtiyoriy)" value={nRu} onChange={e=>setNRu(e.target.value)}/>
+      {tree.roots.length>0&&<div className="chips" style={{marginBottom:8}}>
+        <button type="button" className={'chip'+(!nPar?' on':'')} onClick={()=>setNPar('')}>🗂 Asosiy</button>
+        {tree.roots.slice(0,10).map(r=><button key={r.name} type="button" className={'chip'+(nPar===r.name?' on':'')} onClick={()=>setNPar(nPar===r.name?'':r.name)}>{(EMO[r.name]||'')+' '+cn(r)}</button>)}
+      </div>}
+      {err&&<div style={{color:'#BE123C',fontSize:12,fontWeight:700,marginBottom:6}}>{err}</div>}
+      <button type="button" className="btn s" style={{width:'100%'}} disabled={busy} onClick={()=>createCat(closeForm,pick)}>{busy?'Saqlanmoqda…':'✓ Yaratish va tanlash'}</button>
+    </>:undefined}
+  />
+}
+
+function RolePicker({value,customRoles,onSelect,onReload,style}){
+  const {t}=useLang()
+  const [nm,setNm]=useState(''),[ico,setIco]=useState('🧾'),[base,setBase]=useState('operator'),[cb,setCb]=useState(false),[busy,setBusy]=useState(false),[err,setErr]=useState('')
+  const builtIn=[
+    {value:'worker',label:"Bo'lim ishchisi",sub:"Faqat o'z bo'limi tovarlarini boshqaradi",icon:'🧑‍🏭',base:'worker',roleTitle:'',canBroadcast:false},
+    {value:'operator',label:'Operator',sub:"Buyurtmalarni qabul qiladi va yig'adi",icon:'🎧',base:'operator',roleTitle:'',canBroadcast:false},
+    {value:'admin',label:'Admin',sub:"To'liq boshqaruv, tovarlar va statistika",icon:'🛡️',base:'admin',roleTitle:'',canBroadcast:false}
+  ]
+  const custom=(customRoles||[]).map(r=>({
+    value:'custom:'+r.id,
+    label:r.name,
+    sub:`${ROLE_BASE_LBL[r.base]||r.base}${r.canBroadcast?' · 📣 Xabar':''}`,
+    icon:r.icon||'👤',
+    deletable:true,
+    base:r.base,
+    roleTitle:r.name,
+    canBroadcast:!!r.canBroadcast,
+    rawId:r.id
+  }))
+  const options=[...builtIn,...custom]
+  const delRole=async opt=>{
+    if(!confirm(`"${opt.label}" roli o'chirilsinmi?`))return
+    try{await api(`/api/custom-roles/${opt.rawId}`,'DELETE');if(onReload)await onReload()}catch(e){alert(e.message)}
+  }
+  const createRole=async(closeForm,pick)=>{
+    const name=nm.trim();if(name.length<2){setErr('Rol nomini kiriting');return}
+    setBusy(true);setErr('')
+    try{
+      const r=await api('/api/custom-roles','POST',{name,base,icon:ico,canBroadcast:cb})
+      if(onReload)await onReload()
+      setNm('');setCb(false)
+      const opt={value:'custom:'+r.item.id,label:r.item.name,base:r.item.base,roleTitle:r.item.name,canBroadcast:!!r.item.canBroadcast}
+      closeForm();pick(opt.value,opt)
+    }catch(e){setErr(e.message)}
+    setBusy(false)
+  }
+  return <ModernSelect
+    value={value}
+    options={options}
+    onChange={(v,opt)=>onSelect(opt||builtIn.find(x=>x.value===v))}
+    onDeleteOption={delRole}
+    title={t("Rolni tanlang")}
+    placeholder={t("Rolni tanlang")}
+    style={style}
+    searchable={options.length>=7}
+    createLabel={t("Yangi rol qo'shish")}
+    renderCreate={(closeForm,pick)=><>
+      <div className="pick-create-h"><span>➕ {t("Yangi rol qo'shish")}</span><button type="button" className="sec-link" style={{fontSize:12}} onClick={closeForm}>✕</button></div>
+      <input className="in" placeholder="Rol nomi (masalan: Kassir, Menejer, Yetkazuvchi)" value={nm} onChange={e=>setNm(e.target.value)}/>
+      <div className="m" style={{marginBottom:4,fontWeight:600}}>Ikonka:</div>
+      <div className="ico-strip">{ROLE_ICONS.map(ic=><button key={ic} type="button" className={ico===ic?'on':''} onClick={()=>setIco(ic)}>{ic}</button>)}</div>
+      <div className="m" style={{marginBottom:4,fontWeight:600}}>Huquq darajasi:</div>
+      <div className="seg" style={{marginBottom:8}}>
+        {[['worker',"Bo'lim"],['operator','Operator'],['admin','Admin']].map(([k,l])=>
+          <button key={k} type="button" className={base===k?'on':''} onClick={()=>setBase(k)}>{l}</button>)}
+      </div>
+      {base==='admin'&&<label className="row" style={{margin:'0 0 8px'}}><span style={{fontSize:12.5}}>📣 Xabar yuborish ruxsati</span><input type="checkbox" checked={cb} onChange={e=>setCb(e.target.checked)}/></label>}
+      {err&&<div style={{color:'#BE123C',fontSize:12,fontWeight:700,marginBottom:6}}>{err}</div>}
+      <button type="button" className="btn s" style={{width:'100%'}} disabled={busy} onClick={()=>createRole(closeForm,pick)}>{busy?'Saqlanmoqda…':'✓ Rol yaratish va tanlash'}</button>
+    </>}
+  />
+}
+
+function WeightSheet({p,cur,close,set,onAdminOpen}){
   const {t,so,pn}=useLang()
   const up=effPrice(p)
   const g=p.min_grams>0
@@ -444,7 +614,10 @@ function WeightSheet({p,cur,close,set}){
   const [v,setV]=useState(g?(cur?.grams||p.min_grams):(cur?.sum||Math.max(20000,minS)))
   return <div className="sheet" onClick={close}><div onClick={e=>e.stopPropagation()}>
     <div className="sheet-handle"/>
-    <h2>{pn(p)} — {so(up)} / kg</h2>
+    <div className="row" style={{margin:'0 0 8px'}}>
+      <h2 style={{margin:0}}>{pn(p)} — {so(up)} / kg</h2>
+      {onAdminOpen&&<button type="button" className="btn s g" onClick={()=>{close();onAdminOpen(p)}}>📊 / ✏️</button>}
+    </div>
     {g?<><div className="qty big soft"><button onClick={()=>setV(x=>Math.max(p.min_grams,x-p.min_grams))}>−</button><b style={{fontSize:18}}>{v>=1000?v/1000+' kg':v+' g'}</b><button onClick={()=>setV(x=>Math.min(20000,x+p.min_grams))}>+</button></div>
       <div className="m" style={{margin:'10px 0'}}>≈ {so(Math.round(up*v/1000))} · {t("Minimal")}: {p.min_grams} g</div></>
     :<><div className="gap" style={{marginBottom:10}}>{sumChips.map(x=><button key={x} className={'chip'+(v===x?' on':'')} onClick={()=>setV(x)}>{so(x)}</button>)}</div>
@@ -455,25 +628,153 @@ function WeightSheet({p,cur,close,set}){
   </div></div>
 }
 
-function Detail({p,cart,put,close,onWeight}){
+function Detail({p,d,cart,put,close,onWeight,initMode='view',onReload,onProductUpdated,say}){
   const {t,so,pn}=useLang()
-  const it=cart[keyOf(p)],max=p.bundle?20:500,on=isSale(p)
-  const pct=on?Math.max(1,Math.round((1-p.sale_price/p.price)*100)):0
+  const isAdm=!p.bundle&&(d?.role==='admin'||d?.role==='superadmin')
+  const [mode,setMode]=useState(isAdm?initMode:'view')
+  const [an,setAn]=useState(null),[anLoad,setAnLoad]=useState(false),[ed,setEd]=useState(null),[saving,setSaving]=useState(false)
+  const tree=buildCatTree(d?.cats||[])
+
+  const curP=an?.product?{...p,...an.product}:p
+  const it=cart[keyOf(curP)],max=curP.bundle?20:500,on=isSale(curP)
+  const pct=on?Math.max(1,Math.round((1-curP.sale_price/curP.price)*100)):0
+
+  useEffect(()=>{
+    if(!isAdm||(mode!=='stats'&&mode!=='edit'))return
+    if(an&&an.product?.id===p.id)return
+    setAnLoad(true)
+    api(`/api/admin/products/${p.id}/analytics`).then(res=>{
+      setAn(res)
+      const x=res.product
+      setEd({...x,barcode:x.barcode||'',price:String(x.price||''),sale_price:x.sale_price?String(x.sale_price):'',sale_until:toLocalInput(x.sale_until),min_grams:x.min_grams||'',min_sum:x.min_sum||'',weight_g:x.weight_g||'',priority:x.priority||3,family:x.family||'',activate:!!x.needs_setup})
+    }).catch(e=>say&&say(e.message)).finally(()=>setAnLoad(false))
+  },[isAdm,mode,p.id,an])
+
+  const pickImg=async e=>{
+    const file=e.target.files[0];if(!file)return
+    try{const u=await upload(file);setEd(x=>({...x,image:u}))}catch(er){say?say(er.message):alert(er.message)}
+  }
+
+  const toggleActive=async nextActive=>{
+    try{
+      await api(`/api/products/${p.id}/active`,'PUT',{active:nextActive})
+      setAn(a=>a?{...a,product:{...a.product,active:nextActive}}:a)
+      setEd(e=>e?{...e,active:nextActive}:e)
+      onProductUpdated&&onProductUpdated({...curP,active:nextActive})
+      onReload&&onReload()
+      say&&say(nextActive?'Faollashtirildi ✅':'Faolsizlantirildi')
+    }catch(er){say&&say(er.message)}
+  }
+
+  const saveEdit=async()=>{
+    if(!ed||saving)return
+    setSaving(true)
+    try{
+      const dt=ed.sale_until?new Date(ed.sale_until):null
+      const body={...ed,sale_price:ed.sale_price?Number(ed.sale_price):null,sale_until:ed.sale_price&&dt&&!Number.isNaN(dt.getTime())?dt.toISOString():null,min_grams:Number(ed.min_grams)||0,min_sum:Number(ed.min_sum)||0,weight_g:Number(ed.weight_g)||0,priority:Number(ed.priority)||3,family:String(ed.family||'').trim()||null}
+      await api(`/api/products/${p.id}`,'PUT',body)
+      const sp=body.sale_price&&body.sale_price>0&&body.sale_price<Math.round(Number(ed.price))?body.sale_price:null
+      const nextP={...curP,...ed,price:Math.round(Number(ed.price)),sale_price:sp,sale_until:sp?body.sale_until:null,min_grams:body.min_grams,min_sum:body.min_sum,weight_g:body.weight_g,priority:body.priority,family:body.family,age_min:Math.round(Number(ed.age_min))||0,barcode:String(ed.barcode||'').trim()||null,name_uz:String(ed.name_uz||'').trim()||null,needs_setup:false,active:ed.activate?true:ed.active}
+      setAn(a=>a?{...a,product:nextP}:a)
+      onProductUpdated&&onProductUpdated(nextP)
+      onReload&&onReload()
+      say&&say('Saqlandi ✅')
+      setMode('view')
+    }catch(er){say&&say(er.message)}
+    setSaving(false)
+  }
+
+  const days=an?.days||[],mx=Math.max(1,...days.map(x=>x.sum)),W=280,H=76
+  const pts=days.map((x,i)=>[days.length>1?8+i*((W-16)/(days.length-1)):W/2,H-10-(x.sum/mx)*(H-22)])
+  const line=pts.map(pt=>pt.join(',')).join(' ')
+  const area=pts.length>1?`${pts[0][0]},${H-10} ${line} ${pts[pts.length-1][0]},${H-10}`:''
+  const qFmt=n=>curP.unit==='weight'?`${Number(n||0).toFixed(2)} kg`:`${Math.round(Number(n||0))} ${t('ta')}`
+
   return <div className="sheet" onClick={close}><div className="det" onClick={e=>e.stopPropagation()}>
     <div className="sheet-handle"/>
-    <div style={{position:'relative'}}><Thumb p={p} cls="dimg" hideSale/>{on&&<span className="disc" style={{fontSize:13,padding:'4px 10px'}}>−{pct}%</span>}</div>
-    <h2 style={{marginTop:12,fontSize:18}}>{pn(p)}</h2>
-    <PriceTag p={p} big/>
-    {on&&p.sale_until&&<Countdown until={p.sale_until} mode="blocks"/>}
-    <div className="gap" style={{margin:'8px 0'}}><span className="badge gray">{t(p.category||'Boshqa')}</span>{p.age_min>0&&<span className="badge red">{p.age_min}+</span>}{p.min_grams>0&&<span className="badge amber">{t("Minimal")}: {p.min_grams} g</span>}</div>
-    {p.description&&<p className="m" style={{fontSize:13.5,margin:'6px 0 12px'}}>{p.description}</p>}
-    {p.unit==='weight'?<button className="btn" onClick={()=>{close();onWeight(p)}}>{it?so(lsum(p,it)):t("Savatga")}</button>
-    :<>
-      <div className="quick-qty">{[1,5,10,20,50].filter(n=>n<=max).map(n=><button key={n} type="button" className={it?.qty===n?'on':''} onClick={()=>put(p,{qty:n})}>{n} {t("ta")}</button>)}</div>
-      {it?<>
-        <div className="gap"><div style={{flex:1}}><QtyControl qty={it.qty} max={max} variant="big" stopProp={false} onChange={n=>put(p,n>0?{qty:n}:null)}/></div><button className="btn" style={{flex:'0 0 auto',width:'auto',padding:'0 22px'}} onClick={close}>OK</button></div>
-        <div className="m" style={{marginTop:8,textAlign:'center'}}>{t("Raqamni bosib sonini klaviaturada yozishingiz mumkin")}</div>
-      </>:<button className="btn" onClick={()=>put(p,{qty:1})}>{t("Savatga")}</button>}
+    {isAdm&&<div className="det-adm-bar">
+      <button type="button" className={mode==='view'?'on':''} onClick={()=>setMode('view')}>🛍 {t("Ko'rinish")}</button>
+      <button type="button" className={mode==='stats'?'on':''} onClick={()=>setMode('stats')}>📊 {t("Tahlil")}</button>
+      <button type="button" className={mode==='edit'?'on':''} onClick={()=>setMode('edit')}>✏️ {t("Tahrirlash")}</button>
+    </div>}
+
+    {mode==='view'&&<>
+      <div style={{position:'relative'}}><Thumb p={curP} cls="dimg" hideSale/>{on&&<span className="disc" style={{fontSize:13,padding:'4px 10px'}}>−{pct}%</span>}</div>
+      <h2 style={{marginTop:12,fontSize:18}}>{pn(curP)}</h2>
+      <PriceTag p={curP} big/>
+      {on&&curP.sale_until&&<Countdown until={curP.sale_until} mode="blocks"/>}
+      <div className="gap" style={{margin:'8px 0'}}>
+        <span className="badge gray">{t(curP.category||'Boshqa')}</span>
+        {curP.family&&<span className="badge blue">⭐ {t(curP.family)}</span>}
+        {curP.age_min>0&&<span className="badge red">{curP.age_min}+</span>}
+        {curP.min_grams>0&&<span className="badge amber">{t("Minimal")}: {curP.min_grams} g</span>}
+        {curP.unit==='weight'&&curP.min_sum>0&&!(curP.min_grams>0)&&<span className="badge amber">{t("Minimal")}: {so(curP.min_sum)}</span>}
+      </div>
+      {curP.description&&<p className="m" style={{fontSize:13.5,margin:'6px 0 12px'}}>{curP.description}</p>}
+      {curP.unit==='weight'?<button className="btn" onClick={()=>{close();onWeight(curP)}}>{it?so(lsum(curP,it)):t("Savatga")}</button>
+      :<>
+        <div className="quick-qty">{[1,5,10,20,50].filter(n=>n<=max).map(n=><button key={n} type="button" className={it?.qty===n?'on':''} onClick={()=>put(curP,{qty:n})}>{n} {t("ta")}</button>)}</div>
+        {it?<>
+          <div className="gap"><div style={{flex:1}}><QtyControl qty={it.qty} max={max} variant="big" stopProp={false} onChange={n=>put(curP,n>0?{qty:n}:null)}/></div><button className="btn" style={{flex:'0 0 auto',width:'auto',padding:'0 22px'}} onClick={close}>OK</button></div>
+          <div className="m" style={{marginTop:8,textAlign:'center'}}>{t("Raqamni bosib sonini klaviaturada yozishingiz mumkin")}</div>
+        </>:<button className="btn" onClick={()=>put(curP,{qty:1})}>{t("Savatga")}</button>}
+      </>}
+    </>}
+
+    {mode==='stats'&&<>
+      <div className="row" style={{margin:'0 0 10px'}}>
+        <div style={{minWidth:0,flex:1}}>
+          <b style={{fontSize:16,display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pn(curP)}</b>
+          <div className="m">{so(effPrice(curP))}{curP.unit==='weight'?' / kg':''} · {curP.category}</div>
+        </div>
+        <label className="sw" title="Faol / Nofaol"><input type="checkbox" checked={curP.active!==false} onChange={e=>toggleActive(e.target.checked)}/><i/></label>
+      </div>
+      {anLoad||!an?<div className="center" style={{minHeight:160}}>{t("Yuklanmoqda…")}</div>:<>
+        <div className="pa-grid">
+          <div className="pa-kpi hi"><span>💰 Jami tushum</span><b>{so(an.totals.revenue)}</b><small>30 kun: {so(an.recent.rev30)}</small></div>
+          <div className="pa-kpi"><span>📦 Jami sotildi</span><b>{qFmt(an.totals.qty)}</b><small>7 kun: {qFmt(an.recent.qty7)}</small></div>
+          <div className="pa-kpi"><span>🛍 Buyurtmalar</span><b>{an.totals.orders} ta</b><small>👥 {an.totals.buyers} xaridor</small></div>
+          <div className="pa-kpi"><span>🏆 O'rin va reyting</span><b>#{an.product.priority||3} ustuvorlik</b><small>{an.rank.inCat?`Katalogda: #${an.rank.inCat} / ${an.rank.totalInCat}`:'Nofaol'}</small></div>
+        </div>
+
+        <div className="pa-chart">
+          <div className="row" style={{margin:'0 0 6px'}}>
+            <b style={{fontSize:13}}>📈 So'nggi 14 kunlik savdo</b>
+            <span className="m">7 kun: {so(an.recent.rev7)}</span>
+          </div>
+          {days.length>0?<>
+            <svg viewBox={`0 0 ${W} ${H}`} className="chart" style={{height:76}}>
+              {area&&<polygon points={area} fill="#E11D4818"/>}
+              {pts.length>1&&<polyline points={line} fill="none" stroke="#E11D48" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round"/>}
+              {pts.map((pt,i)=><circle key={i} cx={pt[0]} cy={pt[1]} r={pts.length===1?4.5:2.8} fill="#E11D48"/>)}
+            </svg>
+            <div className="chart-axis">
+              <span>{fmt(days[0].d)}</span>
+              {days.length>1&&<span>{fmt(days[days.length-1].d)}</span>}
+            </div>
+          </>:<div className="m" style={{textAlign:'center',padding:'14px 0'}}>So'nggi 14 kunda sotuv yo'q</div>}
+        </div>
+
+        <div className="pa-meta">
+          <div className="pa-meta-row"><span>Holat</span><b style={{color:an.product.active?'#059669':'#BE123C'}}>{an.product.active?'✅ Faol':'⛔ Nofaol'}</b></div>
+          <div className="pa-meta-row"><span>Oila / Guruh</span><b>{an.product.family||'—'}</b></div>
+          <div className="pa-meta-row"><span>Shtrixkod</span><b>{an.product.barcode||'—'}</b></div>
+          {an.product.stock!=null&&<div className="pa-meta-row"><span>Ombor qoldig'i</span><b>{an.product.stock}</b></div>}
+          <div className="pa-meta-row"><span>Oxirgi buyurtma</span><b>{an.totals.lastOrder?fmtDt(an.totals.lastOrder):'Hali yo\'q'}</b></div>
+        </div>
+
+        <button type="button" className="btn" onClick={()=>setMode('edit')}>✏️ {t("Tahrirlash")}</button>
+      </>}
+    </>}
+
+    {mode==='edit'&&<>
+      {anLoad||!ed?<div className="center" style={{minHeight:160}}>{t("Yuklanmoqda…")}</div>:<>
+        <label className="row" style={{margin:'0 0 10px',padding:'8px 12px',background:'#F8F9FC',borderRadius:14,border:'1px solid #EEF0F5'}}>
+          <span style={{fontSize:13.5,fontWeight:700}}>{ed.active?'✅ Sotuvda faol':'⛔ Nofaol (yashirin)'}</span>
+          <label className="sw"><input type="checkbox" checked={!!ed.active} onChange={e=>toggleActive(e.target.checked)}/><i/></label>
+        </label>
+        <ProductFields f={ed} setF={setEd} dept={null} tree={tree} cats={d.cats} families={d.families} onReload={onReload} onPick={pickImg} onSave={saveEdit} onCancel={()=>setMode('view')} saveLabel={saving?'Saqlanmoqda…':t("Saqlash")}/>
+      </>}
     </>}
   </div></div>
 }
@@ -520,13 +821,14 @@ function BundleDetail({b,cart,put,close}){
   </div></div>
 }
 
-function Shop({d,cart,setCart,cat,setCat}){
+function Shop({d,cart,setCart,cat,setCat,onReload,say}){
   const {t,so,pn,cn}=useLang()
-  const [q,setQ]=useState(''),[fam,setFam]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[bdet,setBdet]=useState(null)
+  const [q,setQ]=useState(''),[fam,setFam]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view'),[bdet,setBdet]=useState(null)
   const dq=useDebounced(q)
   const home=!dq&&!cat&&!fam
   const tree=buildCatTree(d.cats)
   const fams=d.families||[]
+  const isAdm=d.role==='admin'||d.role==='superadmin'
 
   const load=useCallback((n,reset)=>{
     if(!dq&&!cat&&!fam){setItems([]);setMore(false);return}
@@ -553,6 +855,10 @@ function Shop({d,cart,setCart,cat,setCat}){
   const parentObj=curCatObj?.parent?tree.byName.get(curCatObj.parent):null
   const subCats=cat&&!dq?tree.childrenOf(cat):[]
   const chipList=parentObj?tree.childrenOf(parentObj.name):(subCats.length?subCats:tree.roots)
+  const onProdUpd=upd=>{
+    setDet(upd)
+    setItems(prev=>upd.active===false?prev.filter(x=>x.id!==upd.id):prev.map(x=>x.id===upd.id?{...x,...upd}:x))
+  }
 
   return <>
     <div className="search-box">
@@ -629,7 +935,7 @@ function Shop({d,cart,setCart,cat,setCat}){
       </div>}
 
       <div className="grid">
-        {items.map(p=><div className="card prod" key={p.id} onClick={()=>setDet(p)}>
+        {items.map(p=><div className="card prod" key={p.id} onClick={()=>{setDetMode('view');setDet(p)}}>
           <Thumb p={p}/>
           <div className="pbody">
             <PriceTag p={p}/>
@@ -643,17 +949,18 @@ function Shop({d,cart,setCart,cat,setCat}){
       {more&&<button className="btn g" style={{marginTop:12}} onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}
     </>}
 
-    {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}}/>}
-    {det&&<Detail p={det} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh}/>}
+    {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}} onAdminOpen={isAdm?p=>{setDetMode('stats');setDet(p)}:undefined}/>}
+    {det&&<Detail key={det.id+':'+detMode} p={det} d={d} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh} initMode={detMode} onReload={onReload} onProductUpdated={onProdUpd} say={say}/>}
     {bdet&&<BundleDetail b={bdet} cart={cart} put={put} close={()=>setBdet(null)}/>}
     {vid&&<div className="sheet" onClick={()=>setVid(null)}><div onClick={e=>e.stopPropagation()}><div className="sheet-handle"/><div className="yt"><iframe src={`https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/></div><a className="btn g" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}} href={`https://youtu.be/${vid}`} target="_blank" rel="noreferrer">YouTube ↗</a><button className="btn g" style={{marginTop:8}} onClick={()=>setVid(null)}>✕</button></div></div>}
   </>
 }
 
-function Promo({d,cart,setCart}){
+function Promo({d,cart,setCart,onReload,say}){
   const {t,so,pn,cn}=useLang()
   const tree=buildCatTree(d.cats)
-  const [cat,setCat]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(true),[sh,setSh]=useState(null),[det,setDet]=useState(null)
+  const isAdm=d.role==='admin'||d.role==='superadmin'
+  const [cat,setCat]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(true),[sh,setSh]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view')
   const load=useCallback((n,reset)=>{
     setLoading(true)
     api(`/api/products?sale=1&cat=${encodeURIComponent(cat)}&page=${n}`)
@@ -669,6 +976,10 @@ function Promo({d,cart,setCart}){
     if(it)return <QtyControl qty={it.qty} max={500} onChange={n=>put(p,n>0?{qty:n}:null)}/>
     return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>+ {t("Savatga")}</button>
   }
+  const onProdUpd=upd=>{
+    setDet(upd)
+    setItems(prev=>upd.active===false?prev.filter(x=>x.id!==upd.id):prev.map(x=>x.id===upd.id?{...x,...upd}:x))
+  }
   return <>
     <div className="sale-hero">
       <h1>🔥 {t("Aksiya va chegirmalar")}</h1>
@@ -679,7 +990,7 @@ function Promo({d,cart,setCart}){
       {tree.roots.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
     </div>
     <div className="grid">
-      {items.map(p=><div className="card prod" key={p.id} onClick={()=>setDet(p)}>
+      {items.map(p=><div className="card prod" key={p.id} onClick={()=>{setDetMode('view');setDet(p)}}>
         <Thumb p={p}/>
         <div className="pbody">
           <PriceTag p={p}/>
@@ -691,8 +1002,8 @@ function Promo({d,cart,setCart}){
     {loading&&!items.length&&<div className="center" style={{minHeight:160}}>{t("Yuklanmoqda…")}</div>}
     {!loading&&!items.length&&<div className="center" style={{minHeight:180}}>{t("Hozircha aksiya mahsulotlari yo'q")}</div>}
     {more&&<button className="btn g" style={{marginTop:12}} onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}
-    {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}}/>}
-    {det&&<Detail p={det} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh}/>}
+    {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}} onAdminOpen={isAdm?p=>{setDetMode('stats');setDet(p)}:undefined}/>}
+    {det&&<Detail key={det.id+':'+detMode} p={det} d={d} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh} initMode={detMode} onReload={onReload} onProductUpdated={onProdUpd} say={say}/>}
   </>
 }
 
@@ -1340,20 +1651,23 @@ function SaleTimePicker({value,onChange}){
   </>
 }
 
-function ProductFields({f,setF,dept,tree,families,onPick,onSave,onCancel,saveLabel}){
-  const {t,so,cn}=useLang()
+function ProductFields({f,setF,dept,tree,cats,families,onReload,onPick,onSave,onCancel,saveLabel}){
+  const {t,so}=useLang()
   const set=k=>e=>setF({...f,[k]:e.target.value})
   const pr=Number(f.price)||0,sp=Number(f.sale_price)||0
   const pct=pr>0&&sp>0&&sp<pr?Math.max(1,Math.round((1-sp/pr)*100)):0
   const prio=Number(f.priority)||3
   const famOpts=[...new Set([...FAM_PRESETS,...(families||[])])]
+  const unitOpts=[{value:'piece',label:'Dona',sub:'Donalab sotiladi',icon:'📦'},{value:'weight',label:"Og'irlik (kg)",sub:'Kilogramm / summa bilan',icon:'⚖️'}]
+  const ageOpts=[{value:'0',label:"Yosh: yo'q",icon:'✅'},{value:'16',label:'16+',icon:'🔞'},{value:'18',label:'18+',icon:'🔞'},{value:'20',label:'20+',icon:'🔞'},{value:'21',label:'21+',icon:'🔞'}]
+  const catList=cats||tree?.flat||[]
   return <>
     <input className="in" placeholder="Название (русский)" value={f.name} onChange={set('name')}/>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name_uz||''} onChange={set('name_uz')}/>
     <input className="in" inputMode="numeric" placeholder={t("Shtrixkod (ixtiyoriy)")} value={f.barcode||''} onChange={set('barcode')}/>
     <div className="gap">
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder={t("Narx (dona yoki kg uchun)")} value={f.price} onChange={e=>setF({...f,price:digits(e.target.value)})}/>
-      <select className="in" style={{flex:1}} value={f.unit} onChange={set('unit')}><option value="piece">Dona</option><option value="weight">Og'irlik (kg)</option></select>
+      <ModernSelect style={{flex:1}} value={f.unit} options={unitOpts} onChange={v=>setF({...f,unit:v})} title="O'lchov birligi"/>
     </div>
     {f.unit==='weight'?<div className="gap">
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. summa (so'm, mas. 15000)" value={f.min_sum||''} onChange={e=>setF({...f,min_sum:digits(e.target.value)})}/>
@@ -1382,8 +1696,8 @@ function ProductFields({f,setF,dept,tree,families,onPick,onSave,onCancel,saveLab
       </div>
     </div>
     <div className="gap">
-      {!dept&&<select className="in" style={{flex:2}} value={f.category} onChange={set('category')}>{tree.flat.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}</select>}
-      <select className="in" style={{flex:1}} value={f.age_min||0} onChange={set('age_min')}><option value="0">Yosh: yo'q</option><option value="16">16+</option><option value="18">18+</option><option value="20">20+</option><option value="21">21+</option></select>
+      {!dept&&<CatPicker style={{flex:1.7}} value={f.category} cats={catList} canCreate onReload={onReload} onChange={v=>setF({...f,category:v})}/>}
+      <ModernSelect style={{flex:1}} value={String(f.age_min||0)} options={ageOpts} onChange={v=>setF({...f,age_min:Number(v)||0})} title="Yosh cheklovi"/>
     </div>
     <textarea className="in" rows={2} placeholder="Tavsif (ixtiyoriy)" value={f.description||''} onChange={set('description')}/>
     <div className="gap" style={{alignItems:'center',marginBottom:8}}>
@@ -1401,12 +1715,12 @@ function ProductFields({f,setF,dept,tree,families,onPick,onSave,onCancel,saveLab
   </>
 }
 
-function Products({d,act,say,initState,initCat}){
+function Products({d,act,say,onReload,initState,initCat}){
   const {t,so,cn}=useLang()
   const tree=buildCatTree(d.cats)
   const dept=d.role==='worker'?d.workerDepartment:null
   const e0={name:'',name_uz:'',description:'',barcode:'',price:'',sale_price:'',sale_until:'',unit:'piece',image:'',category:dept||d.categories[0],age_min:0,min_grams:'',min_sum:'',weight_g:'',priority:3,family:''}
-  const [addOpen,setAddOpen]=useState(false),[f,setF]=useState(e0),[ed,setEd]=useState(null)
+  const [addOpen,setAddOpen]=useState(false),[f,setF]=useState(e0),[ed,setEd]=useState(null),[anP,setAnP]=useState(null)
   const [q,setQ]=useState(''),[st,setSt]=useState(initState||'all'),[cat,setCat]=useState(initCat||''),[prio,setPrio]=useState(''),[fam,setFam]=useState('')
   const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
   const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncAuto,setSyncAuto]=useState(true),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
@@ -1473,7 +1787,7 @@ function Products({d,act,say,initState,initCat}){
         <h2 style={{margin:0}}>➕ {t("Yangi mahsulot")}</h2>
         <button className="btn s g" onClick={()=>{if(!addOpen&&cat&&!dept)setF(x=>({...x,category:cat}));setAddOpen(o=>!o)}}>{addOpen?'✕':t("Qo'shish")}</button>
       </div>
-      {addOpen&&<div style={{marginTop:10}}><ProductFields f={f} setF={setF} dept={dept} tree={tree} families={d.families} onPick={pickFor(setF)} onSave={saveNew} onCancel={()=>setAddOpen(false)}/></div>}
+      {addOpen&&<div style={{marginTop:10}}><ProductFields f={f} setF={setF} dept={dept} tree={tree} cats={d.cats} families={d.families} onReload={onReload} onPick={pickFor(setF)} onSave={saveNew} onCancel={()=>setAddOpen(false)}/></div>}
     </div>
 
     {!dept&&<div className="card" style={{padding:syncOpen?14:10}}>
@@ -1570,12 +1884,13 @@ function Products({d,act,say,initState,initCat}){
                 setList(prev=>prev.map(x=>x.id===p.id?{...x,active}:x).filter(x=>st==='all'||st==='sale'||st==='setup'||(st==='on'?x.active:!x.active)))
               })
             }}/><i/></label>}
+            {!dept&&<button className="btn s g" title={t("Tahlil")} onClick={()=>setAnP(p)}>📊</button>}
             <button className={'btn s '+(ed?.id===p.id?'':'g')} onClick={()=>setEd(cur=>cur?.id===p.id?null:{...p,barcode:p.barcode||'',price:String(p.price||''),sale_price:p.sale_price?String(p.sale_price):'',sale_until:toLocalInput(p.sale_until),min_grams:p.min_grams||'',min_sum:p.min_sum||'',weight_g:p.weight_g||'',priority:p.priority||3,family:p.family||'',activate:!!p.needs_setup})}>{ed?.id===p.id?'✕':'✎'}</button>
             {dept&&<button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api('/api/products/'+p.id,'DELETE'),"So'rov yuborildi")}>🗑</button>}
           </span>
         </div>
         {ed?.id===p.id&&<div className="inline-edit">
-          <ProductFields f={ed} setF={setEd} dept={dept} tree={tree} families={d.families} onPick={pickFor(setEd)} onSave={saveEdit} onCancel={()=>setEd(null)} saveLabel={ed.needs_setup&&ed.activate?"Saqlash va faollashtirish":undefined}/>
+          <ProductFields f={ed} setF={setEd} dept={dept} tree={tree} cats={d.cats} families={d.families} onReload={onReload} onPick={pickFor(setEd)} onSave={saveEdit} onCancel={()=>setEd(null)} saveLabel={ed.needs_setup&&ed.activate?"Saqlash va faollashtirish":undefined}/>
         </div>}
         {d.warehouseEnabled&&d.role==='superadmin'&&<input className="in" style={{marginTop:8,marginBottom:0}} type="number" placeholder="Ombor qoldig'i" defaultValue={p.stock??''} onBlur={e=>{
           const val=e.target.value===''?null:e.target.value
@@ -1585,6 +1900,7 @@ function Products({d,act,say,initState,initCat}){
     })}
     {!list.length&&<div className="center" style={{minHeight:140}}>{t("Hech narsa topilmadi")}</div>}
     {more&&<button className="btn g" onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}
+    {anP&&<Detail key={anP.id+':stats'} p={anP} d={d} cart={{}} put={()=>{}} close={()=>setAnP(null)} onWeight={()=>{}} initMode="stats" onReload={onReload} say={say} onProductUpdated={upd=>{setAnP(upd);setList(prev=>prev.map(x=>x.id===upd.id?{...x,...upd}:x))}}/>}
   </>
 }
 
@@ -1608,25 +1924,20 @@ function Banners({act}){
     </div>)}</>
 }
 
-function Cats({d,act}){
-  const {t,cn}=useLang()
+function Cats({d,act,onReload}){
+  const {t}=useLang()
   const tree=buildCatTree(d.cats)
   const e0={name:'',name_ru:'',image:'',sort:0,parent:''},[f,setF]=useState(e0),[ed,setEd]=useState(null)
   const pick=setter=>async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setter(o=>({...o,image:u}))}catch(er){alert(er.message)}}
-  const addParentOpts=tree.flat.filter(c=>c.depth<2)
   return <div className="card"><h2>🗂 {t("Katalog")}</h2>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/>
     <input className="in" placeholder="Название (русский)" value={f.name_ru||''} onChange={e=>setF({...f,name_ru:e.target.value})}/>
-    <select className="in" value={f.parent||''} onChange={e=>setF({...f,parent:e.target.value})}>
-      <option value="">{t("Asosiy kategoriya (yo'q)")}</option>
-      {addParentOpts.map(c=><option key={c.name} value={c.name}>{'\u00A0\u00A0'.repeat(c.depth)+(c.depth?'↳ ':'')+cn(c)}</option>)}
-    </select>
+    <CatPicker value={f.parent||''} cats={d.cats} includeNone noneLabel={t("Asosiy kategoriya (yo'q)")} maxDepth={2} title="Ota kategoriya" onReload={onReload} onChange={v=>setF({...f,parent:v})}/>
     <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label><input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
     <button className="btn s" style={{marginBottom:8}} onClick={()=>act(async()=>{await api('/api/cats','POST',f);setF(e0)},'Saqlandi')}>+ Kategoriya</button>
 
     {tree.flat.map(c=>{
       const isEd=ed?.old===c.name
-      const edParentOpts=isEd?tree.flat.filter(x=>x.name!==c.name&&x.parent!==c.name&&x.depth<2):[]
       return <div className="cat-row-wrap" key={c.name}>
         <div className="row" style={{paddingLeft:c.depth*16}}>
           <span className="row-txt">{c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}{EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}</span>
@@ -1638,10 +1949,7 @@ function Cats({d,act}){
         {isEd&&<div className="inline-edit">
           <input className="in" placeholder="Nomi (o'zbekcha)" value={ed.name} onChange={e=>setEd({...ed,name:e.target.value})}/>
           <input className="in" placeholder="Название (русский)" value={ed.name_ru||''} onChange={e=>setEd({...ed,name_ru:e.target.value})}/>
-          <select className="in" value={ed.parent||''} onChange={e=>setEd({...ed,parent:e.target.value})}>
-            <option value="">{t("Asosiy kategoriya (yo'q)")}</option>
-            {edParentOpts.map(x=><option key={x.name} value={x.name}>{'\u00A0\u00A0'.repeat(x.depth)+(x.depth?'↳ ':'')+cn(x)}</option>)}
-          </select>
+          <CatPicker value={ed.parent||''} cats={d.cats} includeNone noneLabel={t("Asosiy kategoriya (yo'q)")} maxDepth={2} exclude={x=>x.name===c.name||x.parent===c.name} title="Ota kategoriya" onReload={onReload} onChange={v=>setEd({...ed,parent:v})}/>
           <div className="gap" style={{alignItems:'center',marginBottom:8}}>
             {ed.image&&<img src={ed.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
             <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setEd)}/></label>
@@ -1728,7 +2036,7 @@ function AdminCards({act,say}){
   </>
 }
 
-function Content({d,act}){
+function Content({d,act,onReload}){
   const {t,so}=useLang()
   const [c,setC]=useState({banners:[],videos:[],bundles:[]}),[ver,setVer]=useState(0),go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
   const [vd,setVd]=useState({title:'',url:''}),[bd,setBd]=useState({title:'',title_ru:'',description:'',description_ru:'',price:'',image:'',items:[]}),[bq,setBq]=useState(''),[res,setRes]=useState([]),dq=useDebounced(bq)
@@ -1737,7 +2045,7 @@ function Content({d,act}){
   const img=(setter,o)=>async e=>{const f=e.target.files[0];if(!f)return;try{setter({...o,image:await upload(f)})}catch(er){alert(er.message)}}
   const row=(k,x,label)=><div className="row" key={x.id}><span className="row-txt">{label}</span><span className="row-acts"><label className="sw"><input type="checkbox" checked={x.active} onChange={e=>go(()=>api(`/api/content/${k}/${x.id}/active`,'PUT',{active:e.target.checked}))}/><i/></label><button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api(`/api/content/${k}/${x.id}`,'DELETE'))}>🗑</button></span></div>
   return <>
-    <Banners act={act}/><Cats d={d} act={act}/>
+    <Banners act={act}/><Cats d={d} act={act} onReload={onReload}/>
     <div className="card"><h2>🎁 {t("Naborlar")}</h2>
       <input className="in" placeholder={t("Nabor nomi (o'zbekcha)")} value={bd.title} onChange={e=>setBd({...bd,title:e.target.value})}/>
       <input className="in" placeholder={t("Название набора (русский)")} value={bd.title_ru} onChange={e=>setBd({...bd,title_ru:e.target.value})}/>
@@ -1857,9 +2165,9 @@ function AdminBroadcast({act,say}){
   </>
 }
 
-function Settings({d,act,onPreviewAnim}){
+function Settings({d,act,onReload,onPreviewAnim}){
   const {t}=useLang()
-  const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',role:'worker',name:'',department:d.categories[0],canBroadcast:false})
+  const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',roleKey:'worker',role:'worker',roleTitle:'',name:'',department:d.categories[0],canBroadcast:false})
   const [sup,setSup]=useState(()=>({username:d.settings.support?.username||'',phone:d.settings.support?.phone||''}))
   const [preset,setPreset]=useState(()=>d.settings.animation?.preset||'none')
   const cleanUser=String(sup.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim()
@@ -1893,17 +2201,19 @@ function Settings({d,act,onPreviewAnim}){
       <div className="card"><h2>👥 Rollar</h2>
         <div className="m" style={{marginBottom:8}}>Super Admin va «📣 Xabar» yoqilgan adminlar botda barcha foydalanuvchilarga yangilik/rasm/video yubora oladi.</div>
         {(d.roles||[]).map(x=><div className="row" key={x.tg_id}>
-          <span className="row-txt">{x.name||x.tg_id} <span className="m">{x.role}{x.department?' · '+x.department:''}{x.role==='superadmin'||x.can_broadcast?' · 📣':''}</span></span>
+          <span className="row-txt"><b>{x.name||x.tg_id}</b> <span className="m">{x.role_title?`${x.role_title} (${ROLE_BASE_LBL[x.role]||x.role})`:(ROLE_BASE_LBL[x.role]||x.role)}{x.department?' · '+x.department:''}{x.role==='superadmin'||x.can_broadcast?' · 📣':''}</span></span>
           {x.role!=='superadmin'&&<span className="row-acts">
             {x.role==='admin'&&<button type="button" className={'btn s '+(x.can_broadcast?'k':'g')} title="Xabar yuborish ruxsati" onClick={()=>act(()=>api(`/api/roles/${x.tg_id}/broadcast`,'PUT',{canBroadcast:!x.can_broadcast}),x.can_broadcast?'Xabar ruxsati olindi':'Xabar ruxsati berildi ✅')}>📣</button>}
             <button className="btn s g" onClick={()=>act(()=>api('/api/roles','POST',{targetId:x.tg_id,role:'user'}))}>Olib tashlash</button>
           </span>}
         </div>)}
         <input className="in" placeholder="Telegram ID" value={u.targetId} onChange={e=>setU({...u,targetId:e.target.value})}/><input className="in" placeholder="Ism" value={u.name} onChange={e=>setU({...u,name:e.target.value})}/>
-        <div className="gap"><select className="in" style={{flex:1}} value={u.role} onChange={e=>setU({...u,role:e.target.value})}><option value="worker">Bo'lim ishchisi</option><option value="operator">Operator</option><option value="admin">Admin</option></select>
-        {u.role==='worker'&&<select className="in" style={{flex:1}} value={u.department} onChange={e=>setU({...u,department:e.target.value})}>{d.categories.map(c=><option key={c}>{c}</option>)}</select>}</div>
+        <div className="gap">
+          <RolePicker style={{flex:1}} value={u.roleKey} customRoles={d.customRoles} onReload={onReload} onSelect={opt=>{if(opt)setU({...u,roleKey:opt.value,role:opt.base,roleTitle:opt.roleTitle||'',canBroadcast:opt.base==='admin'?!!opt.canBroadcast:false})}}/>
+          {u.role==='worker'&&<CatPicker style={{flex:1}} value={u.department} cats={d.cats} canCreate onReload={onReload} title="Bo'limni tanlang" onChange={v=>setU({...u,department:v})}/>}
+        </div>
         {u.role==='admin'&&<label className="row" style={{marginBottom:8}}><span>📣 Xabar yuborish ruxsati (Yangiliklar)</span><input type="checkbox" checked={!!u.canBroadcast} onChange={e=>setU({...u,canBroadcast:e.target.checked})}/></label>}
-        <button className="btn" onClick={()=>act(async()=>{await api('/api/roles','POST',u);setU({targetId:'',role:'worker',name:'',department:d.categories[0],canBroadcast:false})},'Saqlandi')}>Qo'shish</button></div>
+        <button className="btn" onClick={()=>act(async()=>{await api('/api/roles','POST',{targetId:u.targetId,role:u.role,roleTitle:u.roleTitle,name:u.name,department:u.department,canBroadcast:u.canBroadcast});setU({targetId:'',roleKey:'worker',role:'worker',roleTitle:'',name:'',department:d.categories[0],canBroadcast:false})},'Saqlandi')}>Qo'shish</button></div>
     </>}</>
 }
 
@@ -1964,7 +2274,7 @@ function AdminSecurity({act,say}){
   </>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'products.sync':'📥 POS / CSV sinxronizatsiya','role.set':'Rol berildi','role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'products.sync':'📥 POS / CSV sinxronizatsiya','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
 const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
@@ -1972,7 +2282,7 @@ function Audit(){
   const [a,setA]=useState([]),[g,setG]=useState('all'),[per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   useEffect(()=>{api(`/api/audit?from=${from}&to=${to}`).then(setA).catch(()=>{})},[from,to])
   const G=AG.find(x=>x[0]===g),list=G[2]?a.filter(x=>G[2].test(x.action)):a,col=x=>(AG.find(z=>z[2]&&z[2].test(x.action))||AG[0])[3]
-  const adet=x=>{const z=x.detail||{};if(z.updated!=null&&z.created!=null)return `🔄 ${z.updated} yangilandi · 🆕 ${z.created} yangi`;if(z.reason)return z.reason+(z.ip?' · '+z.ip:'');if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return z.role+(z.department?' · '+z.department:'');if(z.n)return z.n;return ''}
+  const adet=x=>{const z=x.detail||{};if(z.updated!=null&&z.created!=null)return `🔄 ${z.updated} yangilandi · 🆕 ${z.created} yangi`;if(z.reason)return z.reason+(z.ip?' · '+z.ip:'');if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return (z.roleTitle?`${z.roleTitle} (${z.role})`:z.role)+(z.department?' · '+z.department:'');if(z.name&&z.base)return `${z.name} (${z.base})`;if(z.n)return z.n;return ''}
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     <div className="chips">{AG.map(([k,l])=><button key={k} className={'chip'+(g===k?' on':'')} onClick={()=>setG(k)}>{t(l)}</button>)}</div>
@@ -1980,7 +2290,7 @@ function Audit(){
   </>
 }
 
-function Admin({d,act,say,onPreviewAnim}){
+function Admin({d,act,say,onReload,onPreviewAnim}){
   const {t}=useLang()
   const isW=d.role==='worker',canBc=d.role==='superadmin'||!!d.user.canBroadcast
   const prodLbl=t('Tovarlar')+(d.setupCount?` (🆕 ${d.setupCount})`:'')
@@ -1989,7 +2299,7 @@ function Admin({d,act,say,onPreviewAnim}){
   const [navOpts,setNavOpts]=useState({})
   const navTo=(target,opts={})=>{setNavOpts(opts);setT(target);scrollTo({top:0})}
   return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>{setNavOpts({});setT(k)}}>{(k==='p'||k==='k'||k==='x')?l:t(l)}</button>)}</div>
-    {tb==='d'&&<Dash onNav={navTo}/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say} initFilter={navOpts.orderFilter}/>}{tb==='p'&&<Products d={d} act={act} say={say} initState={navOpts.prodState} initCat={navOpts.prodCat}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act}/>}{tb==='s'&&<Settings d={d} act={act} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
+    {tb==='d'&&<Dash onNav={navTo}/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say} initFilter={navOpts.orderFilter}/>}{tb==='p'&&<Products d={d} act={act} say={say} onReload={onReload} initState={navOpts.prodState} initCat={navOpts.prodCat}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act} onReload={onReload}/>}{tb==='s'&&<Settings d={d} act={act} onReload={onReload} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
 export default function App(){
@@ -2047,13 +2357,13 @@ export default function App(){
         </div>
       </div>
 
-      {tab==='shop'&&<Shop d={d} cart={cart} setCart={setCart} cat={cat} setCat={setCat}/>}
+      {tab==='shop'&&<Shop d={d} cart={cart} setCart={setCart} cat={cat} setCat={setCat} onReload={load} say={say}/>}
       {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}}/>}
-      {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart}/>}
+      {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart} onReload={load} say={say}/>}
       {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')} onReload={load}/>}
       {tab==='orders'&&<Orders d={d} act={act}/>}
       {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act} onReload={load}/>}
-      {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} say={say} onPreviewAnim={p=>setAnimOverride(p)}/>}
+      {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} say={say} onReload={load} onPreviewAnim={p=>setAnimOverride(p)}/>}
 
       {showBar&&<button className="cart-bar" onClick={()=>setTab('cart')}>
         <span className="cb-l"><span className="cb-n">{n}</span><span>{t("Savatga o'tish")}</span></span>
