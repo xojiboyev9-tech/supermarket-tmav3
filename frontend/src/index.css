@@ -115,35 +115,56 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .chip{white-space:nowrap;border:1px solid var(--line);border-radius:99px;padding:7px 13px;background:#fff;font-weight:600;font-size:13px;color:var(--t2);transition:all .14s}
 .chip.on{background:var(--b);color:#fff;border-color:var(--b);box-shadow:0 4px 12px rgba(225,29,72,.24)}
 
-/* Product Grid & Cards */
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-@media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr)}}
-.prod{padding:0;margin:0;overflow:hidden;display:flex;flex-direction:column;transition:transform .14s}
-.prod:active{transform:scale(.98)}
-.img{aspect-ratio:1/1;background:#F3F4F6 center/cover no-repeat;position:relative;display:grid;place-items:center;border-radius:18px 18px 0 0;overflow:hidden}
-.img span.emo{font-size:48px;opacity:.92;line-height:1}
-.img:not([style*="url"]){background:linear-gradient(145deg,#FFF1F2,#F3F4F6)}
-.pbody{padding:9px 10px 10px;display:flex;flex-direction:column;flex:1;gap:4px}
-.price{font-size:16px;font-weight:800;color:var(--t);letter-spacing:-.02em;line-height:1.15}
-.price small{color:var(--m);font-size:11px;font-weight:600}
-.name{font-size:12.5px;font-weight:600;color:var(--t2);line-height:1.3;min-height:33px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1}
+/* Korzinka Go Subcategory Tab Bar */
+.sub-tabs{display:flex;gap:4px;overflow-x:auto;padding:4px 0 10px;margin:0 -12px 6px;padding-left:12px;padding-right:12px;border-bottom:1px solid #F1F2F5;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.sub-tabs::-webkit-scrollbar{display:none}
+.sub-tab{white-space:nowrap;border:0;background:transparent;border-radius:99px;padding:7px 14px;font-size:13.5px;font-weight:600;color:#6B7280;transition:all .14s;cursor:pointer}
+.sub-tab.on{background:#ECEEF1;color:#111827;font-weight:700}
+.sub-sec-title{margin:8px 0 10px;font-size:20px;font-weight:800;letter-spacing:-.025em;color:#111827;line-height:1.18}
+
+/* Korzinka Go 3-Column Mini Product Grid & Cards */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media(min-width:600px){.grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}
+.grid .prod{background:#F6F6F7;border:0;border-radius:16px;box-shadow:none;padding:5px;margin:0;overflow:hidden;display:flex;flex-direction:column;transition:transform .14s}
+.grid .prod:active{transform:scale(.975)}
+.img{aspect-ratio:1/1;background:#fff center/cover no-repeat;position:relative;display:grid;place-items:center;border-radius:14px;overflow:hidden}
+.grid .prod .img{border-radius:12px;background-color:#fff}
+.img span.emo{font-size:44px;opacity:.92;line-height:1}
+.grid .prod .img span.emo{font-size:34px}
+.img:not([style*="url"]){background:linear-gradient(145deg,#FFF5F6,#F3F4F6)}
+.grid .prod .img:not([style*="url"]){background:linear-gradient(145deg,#FFF7F8,#FFFFFF)}
+.grid .prod .disc{left:4px;bottom:4px;top:auto;right:auto;border-radius:7px;font-size:10px;padding:2px 6px;box-shadow:0 2px 6px rgba(225,29,72,.28)}
+.grid .prod .sale-timer{left:4px;top:4px;bottom:auto;max-width:calc(100% - 8px);font-size:9px;padding:2px 5px;gap:3px}
+.grid .prod .age{right:4px;top:4px;left:auto;font-size:9px;padding:2px 5px}
+.pbody{padding:7px 3px 2px;display:flex;flex-direction:column;flex:1;gap:3px}
+.grid .prod .price-wrap{flex-direction:column;align-items:flex-start;gap:1px}
+.price{font-size:14.5px;font-weight:800;color:var(--t);letter-spacing:-.02em;line-height:1.15}
+.grid .prod .price{font-size:13.5px;letter-spacing:-.025em;line-height:1.16;word-break:break-word}
+.price small{color:inherit;opacity:.85;font-size:11px;font-weight:700}
+.grid .prod .price-old{font-size:10.5px;line-height:1.1;text-decoration-color:#FB7185}
+.name{font-size:11.5px;font-weight:500;color:#374151;line-height:1.25;min-height:43px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;flex:1}
 .pfoot{margin-top:6px}
 
 /* Tactile Add & Direct Keyboard Quantity Control */
-.add-full{width:100%;height:36px;border-radius:12px;border:0;background:#F3F4F6;color:var(--t);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;gap:5px;transition:background .14s,transform .12s}
-.add-full:active{transform:scale(.97);background:#E5E7EB}
+.add-full{width:100%;height:34px;border-radius:11px;border:0;background:#F3F4F6;color:var(--t);font-weight:700;font-size:12.5px;display:flex;align-items:center;justify-content:center;gap:4px;transition:background .14s,transform .12s;padding:0 6px}
+.grid .prod .add-full{height:32px;background:#fff;color:#111827;font-size:12px;font-weight:700;box-shadow:0 1px 3px rgba(17,24,39,.08)}
+.add-full:active{transform:scale(.96);background:#E5E7EB}
 .add-full.pri{background:var(--b);color:#fff}
 .add-full.weight-in{background:var(--b50);color:var(--b7);border:1px solid var(--b100)}
+.grid .prod .add-full.weight-in{background:var(--b);color:#fff;border:0;font-size:11px;box-shadow:0 2px 8px rgba(225,29,72,.25)}
 
 .qty{display:flex;align-items:center;justify-content:space-between;background:var(--b);color:#fff;border-radius:12px;height:36px;padding:3px;gap:2px;width:100%}
+.grid .prod .qty{height:32px;border-radius:11px;padding:2px;gap:1px}
 .qty.soft{background:var(--b50);color:var(--b7);border:1px solid var(--b100)}
 .qty.compact{width:116px;height:34px}
 .qty.big{height:46px;border-radius:14px;padding:4px 6px}
 .qty button{width:30px;height:30px;border-radius:9px;border:0;background:rgba(255,255,255,.18);color:inherit;font-size:17px;font-weight:800;display:grid;place-items:center;flex:none;line-height:1}
+.grid .prod .qty button{width:26px;height:26px;border-radius:8px;font-size:15px}
 .qty.soft button{background:#fff;color:var(--b7);box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .qty.big button{width:38px;height:38px;border-radius:11px;font-size:20px}
 .qty button:active{transform:scale(.92)}
 .qinput{flex:1;min-width:0;width:100%;border:0;background:rgba(255,255,255,.16);color:inherit;text-align:center;font-weight:800;font-size:14px;border-radius:8px;height:28px;padding:0 2px;outline:none;-moz-appearance:textfield}
+.grid .prod .qinput{height:26px;font-size:12.5px}
 .qinput:focus{background:rgba(255,255,255,.95);color:var(--t);box-shadow:0 0 0 2px rgba(255,255,255,.5)}
 .qty.soft .qinput{background:transparent;color:var(--b7)}
 .qty.soft .qinput:focus{background:#fff;color:var(--t)}

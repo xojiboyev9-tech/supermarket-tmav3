@@ -963,9 +963,9 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
 
   const actionBtn=p=>{
     const it=cart[keyOf(p)]
-    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);setSh(p)}}>{it?so(lsum(p,it)):'+ '+t("Savatga")}</button>
+    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);setSh(p)}}>{it?so(lsum(p,it)):t("Savatga")}</button>
     if(it)return <QtyControl qty={it.qty} max={p.bundle?20:500} onChange={n=>put(p,n>0?{qty:n}:null)}/>
-    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>+ {t("Savatga")}</button>
+    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>{t("Savatga")}</button>
   }
 
   const openLink=l=>{const m=/(?:v=|youtu\.be\/|shorts\/)([\w-]{11})/.exec(l||'');if(m)setVid(m[1]);else if(l)tg?.openLink?tg.openLink(l):window.open(l)}
@@ -1004,16 +1004,11 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
 
       <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
     </>:<>
-      {parentObj&&!dq&&<div className="crumb">
-        <button onClick={()=>{setCat('');setFam('')}}>{t("Bosh sahifa")}</button>
-        <span>›</span>
-        <button onClick={()=>setCat(parentObj.name)}>{cn(parentObj)}</button>
-      </div>}
       <div className="cat-bar">
         <button className="back-btn" aria-label="Back" onClick={()=>{if(dq){setQ('')}else if(fam&&!cat){setFam('')}else if(parentObj){setCat(parentObj.name)}else{setCat('');setFam('')}}}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
-        <h1>{dq?t("Qidiruv natijalari"):(curCatObj?cn(curCatObj):(fam?t(fam):cat))}</h1>
+        <h1>{dq?t("Qidiruv natijalari"):(parentObj?cn(parentObj):(curCatObj?cn(curCatObj):(fam?t(fam):cat)))}</h1>
         {isAdm&&cat&&!dq&&(!curCatObj?.parent)&&<button type="button" className="btn s g" style={{flex:'none'}} onClick={()=>setSubAdd(o=>!o)}>{subAdd?'✕':"+ Bo'lim"}</button>}
       </div>
 
@@ -1021,10 +1016,16 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
 
       {subCats.length>0&&<BentoTileGrid items={subCats} parentName={cat} tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>}
 
-      {!subCats.length&&<div className="chips">
-        {parentObj
-          ?<button className={'chip'+(cat===parentObj.name?' on':'')} onClick={()=>setCat(parentObj.name)}>{t("Hammasi")}</button>
-          :<button className={'chip'+(!cat&&!fam?' on':'')} onClick={()=>{setCat('');setFam('')}}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>}
+      {parentObj&&!dq&&<>
+        <div className="sub-tabs">
+          <button type="button" className={'sub-tab'+(cat===parentObj.name?' on':'')} onClick={()=>setCat(parentObj.name)}>{t("Hammasi")}</button>
+          {chipList.map(c=><button key={c.name} type="button" className={'sub-tab'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{cn(c)}</button>)}
+        </div>
+        <h2 className="sub-sec-title">{curCatObj?cn(curCatObj):cat}</h2>
+      </>}
+
+      {!parentObj&&!subCats.length&&<div className="chips">
+        <button className={'chip'+(!cat&&!fam?' on':'')} onClick={()=>{setCat('');setFam('')}}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>
         {chipList.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
       </div>}
 
@@ -1156,9 +1157,9 @@ function Promo({d,cart,setCart,onReload,say}){
   const st=e=>e.stopPropagation()
   const actionBtn=p=>{
     const it=cart[keyOf(p)]
-    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);setSh(p)}}>{it?so(lsum(p,it)):'+ '+t("Savatga")}</button>
+    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);setSh(p)}}>{it?so(lsum(p,it)):t("Savatga")}</button>
     if(it)return <QtyControl qty={it.qty} max={500} onChange={n=>put(p,n>0?{qty:n}:null)}/>
-    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>+ {t("Savatga")}</button>
+    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>{t("Savatga")}</button>
   }
   const onProdUpd=upd=>{
     setDet(upd)
