@@ -373,7 +373,12 @@ app.post('/api/orders/:id/edit-apply',wrap(async(req,res)=>{await O.editApply(re
  if(process.env.PUBLIC_URL&&process.env.BOT_TOKEN){app.use(await bot.createWebhook({domain:process.env.PUBLIC_URL.replace(/^https?:\/\//,'').replace(/\/+$/,''),path:'/bot',secret_token:process.env.WEBHOOK_SECRET}))}
  else if(process.env.BOT_TOKEN)bot.launch();
  const path=require('path'),fs=require('fs'),pub=path.join(__dirname,'../public');
- if(fs.existsSync(pub)){app.use(express.static(pub,{maxAge:'1h'}));app.get('*',(req,res)=>res.sendFile(path.join(pub,'index.html')))}
+ if(fs.existsSync(pub)){
+  const noCache=res=>res.set({'Cache-Control':'no-store, no-cache, must-revalidate, proxy-revalidate','Pragma':'no-cache','Expires':'0'});
+  app.use('/assets',express.static(path.join(pub,'assets'),{maxAge:'1y',immutable:true}));
+  app.use(express.static(pub,{index:false,maxAge:'10m'}));
+  app.get('*',(req,res)=>{noCache(res);res.sendFile(path.join(pub,'index.html'))});
+ }
  app.listen(port,()=>console.log('server',port));
  process.once('SIGTERM',()=>process.exit(0));})();
 
