@@ -493,10 +493,31 @@ function ModernSelect({value,options,onChange,title,placeholder,style,searchable
   </>
 }
 
+function CatCamBtn({c,onReload,say}){
+  const [busy,setBusy]=useState(false)
+  const pick=async e=>{
+    e.stopPropagation()
+    const file=e.target.files?.[0];e.target.value=''
+    if(!file||busy)return
+    setBusy(true)
+    try{
+      const url=await upload(file)
+      await api('/api/cats','POST',{name:c.name,name_ru:c.name_ru||'',image:url,section:c.section||'',sort:c.sort||0,parent:c.parent||''})
+      if(onReload)await onReload()
+      say&&say('Rasm saqlandi ✅')
+    }catch(er){say?say(er.message):alert(er.message)}
+    setBusy(false)
+  }
+  return <label className={'cat-cam'+(busy?' busy':'')} title="Rasm qo'yish" onClick={e=>e.stopPropagation()}>
+    {busy?'⏳':'📷'}
+    <input type="file" accept="image/*" hidden onClick={e=>e.stopPropagation()} onChange={pick}/>
+  </label>
+}
+
 function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel,exclude,maxDepth,title,style}){
   const {t,cn}=useLang()
   const tree=buildCatTree(cats||[])
-  const [nUz,setNUz]=useState(''),[nRu,setNRu]=useState(''),[nPar,setNPar]=useState(''),[busy,setBusy]=useState(false),[err,setErr]=useState('')
+  const [nUz,setNUz]=useState(''),[nRu,setNRu]=useState(''),[nPar,setNPar]=useState(''),[nImg,setNImg]=useState(''),[busy,setBusy]=useState(false),[err,setErr]=useState('')
   const flat=tree.flat.filter(c=>(!exclude||!exclude(c))&&(maxDepth===undefined||c.depth<maxDepth))
   const options=[
     ...(includeNone?[{value:'',label:noneLabel||t("Asosiy kategoriya (yo'q)"),icon:'🗂'}]:[]),
@@ -508,13 +529,20 @@ function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel
       indent:c.depth
     }))
   ]
+  const pickImg=async e=>{
+    const file=e.target.files?.[0];e.target.value=''
+    if(!file)return
+    setBusy(true);setErr('')
+    try{setNImg(await upload(file))}catch(er){setErr(er.message)}
+    setBusy(false)
+  }
   const createCat=async(closeForm,pick)=>{
     const nm=nUz.trim();if(!nm){setErr('Nomini kiriting');return}
     setBusy(true);setErr('')
     try{
-      await api('/api/cats','POST',{name:nm,name_ru:nRu.trim(),parent:nPar||''})
+      await api('/api/cats','POST',{name:nm,name_ru:nRu.trim(),parent:nPar||'',image:nImg||null})
       if(onReload)await onReload()
-      setNUz('');setNRu('');setNPar('')
+      setNUz('');setNRu('');setNPar('');setNImg('')
       closeForm();pick(nm)
     }catch(e){setErr(e.message)}
     setBusy(false)
@@ -532,6 +560,11 @@ function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel
       <div className="pick-create-h"><span>➕ {t("Yangi katalog qo'shish")}</span><button type="button" className="sec-link" style={{fontSize:12}} onClick={closeForm}>✕</button></div>
       <input className="in" placeholder="Nomi (o'zbekcha)" value={nUz} onChange={e=>setNUz(e.target.value)}/>
       <input className="in" placeholder="Название (русский, ixtiyoriy)" value={nRu} onChange={e=>setNRu(e.target.value)}/>
+      <div className="gap" style={{alignItems:'center',marginBottom:8}}>
+        {nImg&&<img src={nImg} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
+        <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={pickImg}/></label>
+        {nImg&&<button type="button" className="btn s g" onClick={()=>setNImg('')}>✕</button>}
+      </div>
       {tree.roots.length>0&&<div className="chips" style={{marginBottom:8}}>
         <button type="button" className={'chip'+(!nPar?' on':'')} onClick={()=>setNPar('')}>🗂 Asosiy</button>
         {tree.roots.slice(0,10).map(r=><button key={r.name} type="button" className={'chip'+(nPar===r.name?' on':'')} onClick={()=>setNPar(nPar===r.name?'':r.name)}>{(EMO[r.name]||'')+' '+cn(r)}</button>)}
@@ -894,6 +927,7 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
             style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
             onClick={()=>{setCat(c.name);scrollTo({top:0,behavior:'smooth'})}}
           >
+            {isAdm&&<CatCamBtn c={c} onReload={onReload} say={say}/>}
             <b>{cn(c)}</b>
             {subCount>0&&<span className="cat-sub-badge">{subCount} {t("bo'lim")}</span>}
             {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
@@ -915,8 +949,14 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
 
       {subCats.length>0&&<>
         <div className="subcat-grid">
-          {subCats.map(sc=><div className="subcat-tile" key={sc.name} onClick={()=>{setCat(sc.name);scrollTo({top:0,behavior:'smooth'})}}>
-            <span className="sub-ic" style={sc.image?{backgroundImage:`url(${sc.image})`}:{}}>{!sc.image&&(EMO[sc.name]||EMO[cat]||'📁')}</span>
+          {subCats.map(sc=><div
+            className={'subcat-tile'+(sc.image?' has-bg':'')}
+            style={sc.image?{backgroundImage:`url(${sc.image})`}:undefined}
+            key={sc.name}
+            onClick={()=>{setCat(sc.name);scrollTo({top:0,behavior:'smooth'})}}
+          >
+            {isAdm&&<CatCamBtn c={sc} onReload={onReload} say={say}/>}
+            {!sc.image&&<span className="sub-ic">{EMO[sc.name]||EMO[cat]||'📁'}</span>}
             <b>{cn(sc)}</b>
           </div>)}
         </div>
@@ -1007,9 +1047,10 @@ function Promo({d,cart,setCart,onReload,say}){
   </>
 }
 
-function Catalog({d,go}){
+function Catalog({d,go,onReload,say}){
   const {t,cn}=useLang()
   const tree=buildCatTree(d.cats)
+  const isAdm=d.role==='admin'||d.role==='superadmin'
   return <>
     <h1>{t("Katalog")}</h1>
     <div className="cat-grid">
@@ -1021,6 +1062,7 @@ function Catalog({d,go}){
           style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
           onClick={()=>go(c.name)}
         >
+          {isAdm&&<CatCamBtn c={c} onReload={onReload} say={say}/>}
           <b>{cn(c)}</b>
           {subCount>0&&<span className="cat-sub-badge">{subCount} {t("bo'lim")}</span>}
           {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
@@ -2358,7 +2400,7 @@ export default function App(){
       </div>
 
       {tab==='shop'&&<Shop d={d} cart={cart} setCart={setCart} cat={cat} setCat={setCat} onReload={load} say={say}/>}
-      {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}}/>}
+      {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}} onReload={load} say={say}/>}
       {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart} onReload={load} say={say}/>}
       {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')} onReload={load}/>}
       {tab==='orders'&&<Orders d={d} act={act}/>}
