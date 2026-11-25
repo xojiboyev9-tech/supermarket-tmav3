@@ -1056,16 +1056,16 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
 }
 
 function QuickSubCatBox({parent,onReload,say,close}){
-  const [name,setName]=useState(''),[nameRu,setNameRu]=useState(''),[img,setImg]=useState(''),[sec,setSec]=useState(''),[busy,setBusy]=useState(false)
+  const [name,setName]=useState(''),[nameRu,setNameRu]=useState(''),[img,setImg]=useState(''),[sec,setSec]=useState(''),[sort,setSort]=useState(''),[busy,setBusy]=useState(false)
   const pick=async e=>{const f=e.target.files?.[0];e.target.value='';if(!f)return;setBusy(true);try{setImg(await upload(f))}catch(er){say&&say(er.message)}setBusy(false)}
   const save=async()=>{
     const n=name.trim();if(!n){say&&say("Bo'lim nomini kiriting");return}
     setBusy(true)
     try{
-      await api('/api/cats','POST',{name:n,name_ru:nameRu.trim(),image:img||null,section:sec,sort:0,parent})
+      await api('/api/cats','POST',{name:n,name_ru:nameRu.trim(),image:img||null,section:sec,sort:Number(sort)||0,parent})
       if(onReload)await onReload()
       say&&say(`✅ "${n}" qo'shildi`)
-      setName('');setNameRu('');setImg('');setSec('')
+      setName('');setNameRu('');setImg('');setSec('');setSort('')
       close&&close()
     }catch(er){say&&say(er.message)}
     setBusy(false)
@@ -1077,7 +1077,10 @@ function QuickSubCatBox({parent,onReload,say,close}){
     </div>
     <input className="in" placeholder="Bo'lim nomi (masalan: Pishloq, Yogurt va siroklar)" value={name} onChange={e=>setName(e.target.value)}/>
     <input className="in" placeholder="Название (русский, ixtiyoriy)" value={nameRu} onChange={e=>setNameRu(e.target.value)}/>
-    <ModernSelect value={sec} options={TILE_SIZES} onChange={setSec} title="Karta kengligi (Zik-zak)"/>
+    <div className="gap">
+      <ModernSelect style={{flex:1.6}} value={sec} options={TILE_SIZES} onChange={setSec} title="Karta kengligi (Zik-zak)"/>
+      <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Tartib (1 = 1-o'rin)" value={sort} onChange={e=>setSort(digits(e.target.value))}/>
+    </div>
     <div className="gap" style={{alignItems:'center',marginBottom:8}}>
       {img&&<img src={img} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
       <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={pick}/></label>
@@ -2095,25 +2098,45 @@ function Banners({act}){
 function Cats({d,act,onReload}){
   const {t}=useLang()
   const tree=buildCatTree(d.cats)
-  const e0={name:'',name_ru:'',image:'',section:'',sort:0,parent:''},[f,setF]=useState(e0),[ed,setEd]=useState(null)
+  const e0={name:'',name_ru:'',image:'',section:'',sort:'',parent:''},[f,setF]=useState(e0),[ed,setEd]=useState(null)
   const pick=setter=>async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setter(o=>({...o,image:u}))}catch(er){alert(er.message)}}
   const szLbl=sec=>TILE_SIZES.find(x=>x.value===(sec||''))
+  const moveCat=(c,delta)=>{
+    const sibs=c.parent?tree.childrenOf(c.parent):tree.roots
+    const idx=sibs.findIndex(x=>x.name===c.name)
+    const to=idx+delta
+    if(idx<0||to<0||to>=sibs.length)return
+    const next=sibs.map(x=>x.name)
+    const [m]=next.splice(idx,1)
+    next.splice(to,0,m)
+    act(()=>api('/api/cats/reorder','PUT',{names:next}))
+  }
   return <div className="card"><h2>🗂 {t("Katalog")}</h2>
+    <div className="m" style={{marginBottom:8}}>Tartib yuqoridan hisoblanadi: <b>1</b> = eng birinchi, <b>2</b> = ikkinchi… (yoki ↑ / ↓ bilan suring)</div>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/>
     <input className="in" placeholder="Название (русский)" value={f.name_ru||''} onChange={e=>setF({...f,name_ru:e.target.value})}/>
     <CatPicker value={f.parent||''} cats={d.cats} includeNone noneLabel={t("Asosiy kategoriya (yo'q)")} maxDepth={2} title="Ota kategoriya" onReload={onReload} onChange={v=>setF({...f,parent:v})}/>
     <ModernSelect value={f.section||''} options={TILE_SIZES} onChange={v=>setF({...f,section:v})} title="Karta kengligi (Zik-zak)"/>
-    <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label><input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
+    <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label><input className="in" style={{width:120,margin:0}} type="text" inputMode="numeric" placeholder="Tartib (1=birinchi)" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
     <button className="btn s" style={{marginBottom:8}} onClick={()=>act(async()=>{await api('/api/cats','POST',f);setF(e0)},'Saqlandi')}>+ Kategoriya</button>
 
     {tree.flat.map(c=>{
       const isEd=ed?.old===c.name
       const sz=c.section?szLbl(c.section):null
+      const sibs=c.parent?tree.childrenOf(c.parent):tree.roots
+      const idx=sibs.findIndex(x=>x.name===c.name)
       return <div className="cat-row-wrap" key={c.name}>
         <div className="row" style={{paddingLeft:c.depth*16}}>
-          <span className="row-txt">{c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}{EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}{sz&&sz.value&&<span className="badge gray" style={{marginLeft:6}}>{sz.icon} {sz.label}</span>}</span>
+          <span className="row-txt">
+            {c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}
+            {c.sort>0&&<span className="badge red" style={{marginRight:5}}>#{c.sort}</span>}
+            {EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}
+            {sz&&sz.value&&<span className="badge gray" style={{marginLeft:6}}>{sz.icon} {sz.label}</span>}
+          </span>
           <span className="row-acts">
-            <button className={'btn s '+(isEd?'':'g')} onClick={()=>setEd(isEd?null:{old:c.name,name:c.name,name_ru:c.name_ru||'',image:c.image||'',section:c.section||'',sort:c.sort||0,parent:c.parent||''})}>{isEd?'✕':'✎'}</button>
+            <button type="button" className="btn s g" style={{padding:'6px 8px'}} disabled={idx<=0} onClick={()=>moveCat(c,-1)}>↑</button>
+            <button type="button" className="btn s g" style={{padding:'6px 8px'}} disabled={idx<0||idx>=sibs.length-1} onClick={()=>moveCat(c,1)}>↓</button>
+            <button className={'btn s '+(isEd?'':'g')} onClick={()=>setEd(isEd?null:{old:c.name,name:c.name,name_ru:c.name_ru||'',image:c.image||'',section:c.section||'',sort:c.sort>0?String(c.sort):'',parent:c.parent||''})}>{isEd?'✕':'✎'}</button>
             <button className="btn s g" onClick={()=>confirm("O'chirilsinmi? Tovarlar 'Boshqa'ga o'tadi")&&act(()=>api('/api/cats/'+encodeURIComponent(c.name),'DELETE'))}>🗑</button>
           </span>
         </div>
@@ -2125,7 +2148,7 @@ function Cats({d,act,onReload}){
           <div className="gap" style={{alignItems:'center',marginBottom:8}}>
             {ed.image&&<img src={ed.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
             <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setEd)}/></label>
-            <input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={ed.sort||''} onChange={e=>setEd({...ed,sort:digits(e.target.value)})}/>
+            <input className="in" style={{width:120,margin:0}} type="text" inputMode="numeric" placeholder="Tartib (1=birinchi)" value={ed.sort||''} onChange={e=>setEd({...ed,sort:digits(e.target.value)})}/>
           </div>
           <div className="gap">
             <button className="btn s" onClick={()=>act(async()=>{await api('/api/cats','POST',ed);setEd(null)},'Saqlandi')}>{t("Saqlash")}</button>
