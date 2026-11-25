@@ -263,17 +263,37 @@ const PASTEL_RING=[
   "linear-gradient(155deg,#F3ECE2 0%,#E7DCCB 100%)"
 ]
 const catPastel=(name,i=0)=>CAT_PASTEL[name]||PASTEL_RING[Math.abs(i)%PASTEL_RING.length]
+const TILE_SIZES=[
+  {value:'',label:'Avto (Zik-zak)',sub:'Avtomatik muvozanatli zik-zak',icon:'✨'},
+  {value:'sp4',label:'Keng (2/3)',sub:'Qatorning katta qismi',icon:'▭'},
+  {value:'sp3',label:"O'rta (1/2)",sub:'Qatorning yarmi (yonma-yon 2 ta)',icon:'◻'},
+  {value:'sp2',label:'Kichik (1/3)',sub:'Yonma-yon 3 ta karta',icon:'▪'},
+  {value:'sp6',label:"To'liq (1/1)",sub:'Butun qator kengligi',icon:'▬'}
+]
+const parseSpan=sec=>sec==='sp2'?2:sec==='sp3'?3:sec==='sp4'?4:sec==='sp6'?6:0
 const bentoSpans=n=>{
   if(n<=0)return []
   if(n===1)return [3]
-  const out=[];let rem=n,flip=0
+  const out=[];let rem=n,phase=0
   while(rem>0){
-    if(rem===2){out.push(3,3);rem=0}
+    if(rem===2){out.push(phase%2===0?3:2,phase%2===0?3:4);rem=0}
     else if(rem===3){out.push(2,2,2);rem=0}
-    else if(rem===4){out.push(4,2,3,3);rem=0}
-    else if(rem===5){out.push(2,2,2,3,3);rem=0}
-    else if(flip%2===0){out.push(4,2);rem-=2;flip++}
-    else{out.push(2,2,2);rem-=3;flip++}
+    else if(rem===4){
+      if(phase%2===0)out.push(4,2,2,4)
+      else out.push(2,4,4,2)
+      rem=0
+    }else if(rem===5){
+      if(phase%2===0)out.push(4,2,2,2,2)
+      else out.push(2,2,2,2,4)
+      rem=0
+    }else{
+      const step=phase%4
+      if(step===0){out.push(4,2);rem-=2}
+      else if(step===1){out.push(2,4);rem-=2}
+      else if(step===2){out.push(2,2,2);rem-=3}
+      else{out.push(3,3);rem-=2}
+      phase++
+    }
   }
   return out
 }
@@ -553,6 +573,29 @@ function CatCamBtn({c,onReload,say}){
     {busy?'⏳':'📷'}
     <input type="file" accept="image/*" hidden onClick={e=>e.stopPropagation()} onChange={pick}/>
   </label>
+}
+
+function CatSizeBtn({c,onReload,say}){
+  const [busy,setBusy]=useState(false)
+  const order=['','sp4','sp3','sp2','sp6']
+  const cur=order.includes(c.section||'')?(c.section||''):''
+  const cycle=async e=>{
+    e.stopPropagation()
+    if(busy)return
+    const next=order[(order.indexOf(cur)+1)%order.length]
+    const meta=TILE_SIZES.find(x=>x.value===next)
+    setBusy(true)
+    try{
+      await api('/api/cats','POST',{name:c.name,name_ru:c.name_ru||'',image:c.image||null,section:next,sort:c.sort||0,parent:c.parent||''})
+      if(onReload)await onReload()
+      say&&say(`${meta.icon} ${c.name}: ${meta.label}`)
+    }catch(er){say?say(er.message):alert(er.message)}
+    setBusy(false)
+  }
+  const badge=cur==='sp4'?'⅔':cur==='sp3'?'½':cur==='sp2'?'⅓':cur==='sp6'?'1':'◧'
+  return <button type="button" className={'cat-sz'+(cur?' custom':'')+(busy?' busy':'')} title="Karta kengligini o'zgartirish" onClick={cycle}>
+    {busy?'⏳':badge}
+  </button>
 }
 
 function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel,exclude,maxDepth,title,style}){
@@ -897,7 +940,7 @@ function BundleDetail({b,cart,put,close}){
 
 function Shop({d,cart,setCart,cat,setCat,onReload,say}){
   const {t,so,pn,cn}=useLang()
-  const [q,setQ]=useState(''),[fam,setFam]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view'),[bdet,setBdet]=useState(null)
+  const [q,setQ]=useState(''),[fam,setFam]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view'),[bdet,setBdet]=useState(null),[subAdd,setSubAdd]=useState(false)
   const dq=useDebounced(q)
   const home=!dq&&!cat&&!fam
   const tree=buildCatTree(d.cats)
@@ -913,6 +956,7 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
   },[dq,cat,fam])
 
   useEffect(()=>{load(0,true)},[load])
+  useEffect(()=>{setSubAdd(false)},[cat])
 
   const put=(p,v)=>setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})
   const st=e=>e.stopPropagation()
@@ -970,9 +1014,12 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
         <h1>{dq?t("Qidiruv natijalari"):(curCatObj?cn(curCatObj):(fam?t(fam):cat))}</h1>
+        {isAdm&&cat&&!dq&&(!curCatObj?.parent)&&<button type="button" className="btn s g" style={{flex:'none'}} onClick={()=>setSubAdd(o=>!o)}>{subAdd?'✕':"+ Bo'lim"}</button>}
       </div>
 
-      {subCats.length>0&&<BentoTileGrid items={subCats} parentName={cat} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>}
+      {isAdm&&subAdd&&cat&&!dq&&<QuickSubCatBox parent={cat} onReload={onReload} say={say} close={()=>setSubAdd(false)}/>}
+
+      {subCats.length>0&&<BentoTileGrid items={subCats} parentName={cat} tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>}
 
       {!subCats.length&&<div className="chips">
         {parentObj
@@ -1008,50 +1055,73 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
   </>
 }
 
-function BentoTileGrid({items,parentName,isAdm,onPick,onReload,say,colorIdx=0}){
-  const {cn}=useLang()
-  const spans=bentoSpans(items.length)
+function QuickSubCatBox({parent,onReload,say,close}){
+  const [name,setName]=useState(''),[nameRu,setNameRu]=useState(''),[img,setImg]=useState(''),[sec,setSec]=useState(''),[busy,setBusy]=useState(false)
+  const pick=async e=>{const f=e.target.files?.[0];e.target.value='';if(!f)return;setBusy(true);try{setImg(await upload(f))}catch(er){say&&say(er.message)}setBusy(false)}
+  const save=async()=>{
+    const n=name.trim();if(!n){say&&say("Bo'lim nomini kiriting");return}
+    setBusy(true)
+    try{
+      await api('/api/cats','POST',{name:n,name_ru:nameRu.trim(),image:img||null,section:sec,sort:0,parent})
+      if(onReload)await onReload()
+      say&&say(`✅ "${n}" qo'shildi`)
+      setName('');setNameRu('');setImg('');setSec('')
+      close&&close()
+    }catch(er){say&&say(er.message)}
+    setBusy(false)
+  }
+  return <div className="card" style={{background:'#F8FAFC',borderColor:'#FECDD3',marginBottom:12}}>
+    <div className="row" style={{margin:'0 0 8px'}}>
+      <b style={{fontSize:14}}>➕ «{parent}» ichiga yangi bo'lim</b>
+      <button type="button" className="sec-link" onClick={close}>✕</button>
+    </div>
+    <input className="in" placeholder="Bo'lim nomi (masalan: Pishloq, Yogurt va siroklar)" value={name} onChange={e=>setName(e.target.value)}/>
+    <input className="in" placeholder="Название (русский, ixtiyoriy)" value={nameRu} onChange={e=>setNameRu(e.target.value)}/>
+    <ModernSelect value={sec} options={TILE_SIZES} onChange={setSec} title="Karta kengligi (Zik-zak)"/>
+    <div className="gap" style={{alignItems:'center',marginBottom:8}}>
+      {img&&<img src={img} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
+      <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={pick}/></label>
+      {img&&<button type="button" className="btn s g" onClick={()=>setImg('')}>✕</button>}
+    </div>
+    <button type="button" className="btn s" style={{width:'100%'}} disabled={busy} onClick={save}>{busy?'Saqlanmoqda…':"✓ Bo'lim qo'shish"}</button>
+  </div>
+}
+
+function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx=0}){
+  const {t,cn}=useLang()
+  const autoSpans=bentoSpans(items.length)
   return <div className="bento-grid">
     {items.map((c,i)=>{
-      const sp=spans[i]||3
+      const manual=parseSpan(c.section)
+      const sp=manual||autoSpans[i]||3
       const bg=parentName?catPastel(parentName,colorIdx):catPastel(c.name,i+colorIdx)
+      const subCount=tree?tree.childrenOf(c.name).length:0
       return <div
         key={c.name}
-        className={`bento-tile sp-${sp}${isAdm?' adm':''}`}
+        className={`bento-tile sp-${sp}`}
         style={{background:bg}}
         onClick={()=>onPick(c.name)}
       >
-        {isAdm&&<CatCamBtn c={c} onReload={onReload} say={say}/>}
         <div className="bento-title">{cn(c)}</div>
         {c.image
           ?<div className="bento-pic"><img src={c.image} alt={cn(c)} loading="lazy"/></div>
           :<span className="bento-emo">{EMO[c.name]||(parentName&&EMO[parentName])||'🛒'}</span>}
+        {subCount>0&&<span className="bento-sub-pill">{subCount} {t("bo'lim")}</span>}
+        {isAdm&&<div className="bento-adm-acts">
+          <CatSizeBtn c={c} onReload={onReload} say={say}/>
+          <CatCamBtn c={c} onReload={onReload} say={say}/>
+        </div>}
       </div>
     })}
   </div>
 }
 
-function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say}){
-  const {t,cn}=useLang()
-  const withSubs=[],plain=[]
-  tree.roots.forEach((r,i)=>{
-    const kids=tree.childrenOf(r.name)
-    if(kids.length>0)withSubs.push({r,kids,i})
-    else plain.push({r,i})
-  })
-  return <>
-    {withSubs.map(({r,kids,i})=><div className="bento-sec" key={r.name}>
-      <div className="bento-sec-head">
-        <h2 onClick={()=>onPick(r.name)}>{cn(r)}</h2>
-        <button type="button" className="bento-sec-more" onClick={()=>onPick(r.name)}>{t("Hammasi")} ›</button>
-      </div>
-      <BentoTileGrid items={kids} parentName={r.name} colorIdx={i} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say}/>
-    </div>)}
-    {plain.length>0&&<div className="bento-sec">
-      <div className="bento-sec-head"><h2>{withSubs.length?t("Boshqa bo'limlar"):t("Katalog")}</h2></div>
-      <BentoTileGrid items={plain.map(x=>x.r)} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say}/>
-    </div>}
-  </>
+function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,hideTitle}){
+  const {t}=useLang()
+  return <div className="bento-sec">
+    {!hideTitle&&<div className="bento-sec-head"><h2>{t("Katalog")}</h2></div>}
+    <BentoTileGrid items={tree.roots} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say}/>
+  </div>
 }
 
 function ScrollTopBtn(){
@@ -1124,7 +1194,7 @@ function Catalog({d,go,onReload,say}){
   const isAdm=d.role==='admin'||d.role==='superadmin'
   return <>
     <h1>{t("Katalog")}</h1>
-    <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={go} onReload={onReload} say={say}/>
+    <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={go} onReload={onReload} say={say} hideTitle/>
   </>
 }
 
@@ -2025,22 +2095,25 @@ function Banners({act}){
 function Cats({d,act,onReload}){
   const {t}=useLang()
   const tree=buildCatTree(d.cats)
-  const e0={name:'',name_ru:'',image:'',sort:0,parent:''},[f,setF]=useState(e0),[ed,setEd]=useState(null)
+  const e0={name:'',name_ru:'',image:'',section:'',sort:0,parent:''},[f,setF]=useState(e0),[ed,setEd]=useState(null)
   const pick=setter=>async e=>{const x=e.target.files[0];if(!x)return;try{const u=await upload(x);setter(o=>({...o,image:u}))}catch(er){alert(er.message)}}
+  const szLbl=sec=>TILE_SIZES.find(x=>x.value===(sec||''))
   return <div className="card"><h2>🗂 {t("Katalog")}</h2>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/>
     <input className="in" placeholder="Название (русский)" value={f.name_ru||''} onChange={e=>setF({...f,name_ru:e.target.value})}/>
     <CatPicker value={f.parent||''} cats={d.cats} includeNone noneLabel={t("Asosiy kategoriya (yo'q)")} maxDepth={2} title="Ota kategoriya" onReload={onReload} onChange={v=>setF({...f,parent:v})}/>
+    <ModernSelect value={f.section||''} options={TILE_SIZES} onChange={v=>setF({...f,section:v})} title="Karta kengligi (Zik-zak)"/>
     <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label><input className="in" style={{width:90,margin:0}} type="text" inputMode="numeric" placeholder="Tartib" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
     <button className="btn s" style={{marginBottom:8}} onClick={()=>act(async()=>{await api('/api/cats','POST',f);setF(e0)},'Saqlandi')}>+ Kategoriya</button>
 
     {tree.flat.map(c=>{
       const isEd=ed?.old===c.name
+      const sz=c.section?szLbl(c.section):null
       return <div className="cat-row-wrap" key={c.name}>
         <div className="row" style={{paddingLeft:c.depth*16}}>
-          <span className="row-txt">{c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}{EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}</span>
+          <span className="row-txt">{c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}{EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}{sz&&sz.value&&<span className="badge gray" style={{marginLeft:6}}>{sz.icon} {sz.label}</span>}</span>
           <span className="row-acts">
-            <button className={'btn s '+(isEd?'':'g')} onClick={()=>setEd(isEd?null:{old:c.name,name:c.name,name_ru:c.name_ru||'',image:c.image||'',sort:c.sort||0,parent:c.parent||''})}>{isEd?'✕':'✎'}</button>
+            <button className={'btn s '+(isEd?'':'g')} onClick={()=>setEd(isEd?null:{old:c.name,name:c.name,name_ru:c.name_ru||'',image:c.image||'',section:c.section||'',sort:c.sort||0,parent:c.parent||''})}>{isEd?'✕':'✎'}</button>
             <button className="btn s g" onClick={()=>confirm("O'chirilsinmi? Tovarlar 'Boshqa'ga o'tadi")&&act(()=>api('/api/cats/'+encodeURIComponent(c.name),'DELETE'))}>🗑</button>
           </span>
         </div>
@@ -2048,6 +2121,7 @@ function Cats({d,act,onReload}){
           <input className="in" placeholder="Nomi (o'zbekcha)" value={ed.name} onChange={e=>setEd({...ed,name:e.target.value})}/>
           <input className="in" placeholder="Название (русский)" value={ed.name_ru||''} onChange={e=>setEd({...ed,name_ru:e.target.value})}/>
           <CatPicker value={ed.parent||''} cats={d.cats} includeNone noneLabel={t("Asosiy kategoriya (yo'q)")} maxDepth={2} exclude={x=>x.name===c.name||x.parent===c.name} title="Ota kategoriya" onReload={onReload} onChange={v=>setEd({...ed,parent:v})}/>
+          <ModernSelect value={ed.section||''} options={TILE_SIZES} onChange={v=>setEd({...ed,section:v})} title="Karta kengligi (Zik-zak)"/>
           <div className="gap" style={{alignItems:'center',marginBottom:8}}>
             {ed.image&&<img src={ed.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
             <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setEd)}/></label>
