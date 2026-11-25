@@ -85,7 +85,8 @@ const RU={
   "Bolalar uchun":"Для детей","Bayramona":"Праздничные",
   "Ko'rinish":"Товар","Tahlil":"Анализ",
   "Yangi rol qo'shish":"Добавить новую роль","Yangi katalog qo'shish":"Добавить новую категорию",
-  "Rolni tanlang":"Выберите роль","Katalogni tanlang":"Выберите категорию"
+  "Rolni tanlang":"Выберите роль","Katalogni tanlang":"Выберите категорию",
+  "Boshqa bo'limlar":"Другие разделы"
 }
 
 const FAM_PRESETS=['Kundalik ehtiyoj','Nonushta','Oilaviy','Bolalar uchun','Bayramona','Premium']
@@ -236,12 +237,52 @@ const ST={new:['Yangi','blue'],accepted:['Qabul qilindi','indigo'],awaiting_conf
 const NEXT={new:[['accepted','Qabul']],accepted:[['preparing',"Yig'ish"]],preparing:[['ready','Tayyor']],ready:[['completed','Topshirildi']]}
 const EMO={"Sut mahsulotlari":'🥛',"Go'sht va kolbasa":'🥩',"Non mahsulotlari":'🍞',Ichimliklar:'🥤',Shirinliklar:'🍫',Bakaleya:'🌾',"Maishiy kimyo":'🧴',"Meva-sabzavot":'🍎',"Taom mahsulotlari":'🍲',Boshqa:'🛒'}
 const CAT_BG=["#EFF6FF","#FFF1F2","#FEFCE8","#ECFEFF","#FDF2F8","#F0FDF4","#FFF7ED","#F5F3FF","#F0FDFA","#F3F4F6"]
+const CAT_PASTEL={
+  "Sut mahsulotlari":"linear-gradient(155deg,#D2E1FA 0%,#BED4F6 100%)",
+  "Go'sht va kolbasa":"linear-gradient(155deg,#FDD4E8 0%,#FBC0DE 100%)",
+  "Ichimliklar":"linear-gradient(155deg,#EBE9FC 0%,#DFDCF9 100%)",
+  "Meva-sabzavot":"linear-gradient(155deg,#D8F5E5 0%,#C2EED6 100%)",
+  "Meva-Sabzavot":"linear-gradient(155deg,#D8F5E5 0%,#C2EED6 100%)",
+  "Barra Ko‘katlar":"linear-gradient(155deg,#DCF7E6 0%,#C4EED5 100%)",
+  "Non mahsulotlari":"linear-gradient(155deg,#FDEFD1 0%,#FAE1B2 100%)",
+  "Shirinliklar":"linear-gradient(155deg,#FFE4D9 0%,#FDD0BE 100%)",
+  "Bakaleya":"linear-gradient(155deg,#F3ECE2 0%,#E7DCCB 100%)",
+  "Maishiy kimyo":"linear-gradient(155deg,#D4F1F8 0%,#BCE6F2 100%)",
+  "Taom mahsulotlari":"linear-gradient(155deg,#FDE2DC 0%,#FACAC0 100%)",
+  "Kundalik Ehtiyoj":"linear-gradient(155deg,#E2F2E9 0%,#CCE7D8 100%)",
+  "Boshqa":"linear-gradient(155deg,#ECEFF4 0%,#E0E6EE 100%)"
+}
+const PASTEL_RING=[
+  "linear-gradient(155deg,#D2E1FA 0%,#BED4F6 100%)",
+  "linear-gradient(155deg,#FDD4E8 0%,#FBC0DE 100%)",
+  "linear-gradient(155deg,#EBE9FC 0%,#DFDCF9 100%)",
+  "linear-gradient(155deg,#D8F5E5 0%,#C2EED6 100%)",
+  "linear-gradient(155deg,#FDEFD1 0%,#FAE1B2 100%)",
+  "linear-gradient(155deg,#FFE4D9 0%,#FDD0BE 100%)",
+  "linear-gradient(155deg,#D4F1F8 0%,#BCE6F2 100%)",
+  "linear-gradient(155deg,#F3ECE2 0%,#E7DCCB 100%)"
+]
+const catPastel=(name,i=0)=>CAT_PASTEL[name]||PASTEL_RING[Math.abs(i)%PASTEL_RING.length]
+const bentoSpans=n=>{
+  if(n<=0)return []
+  if(n===1)return [3]
+  const out=[];let rem=n,flip=0
+  while(rem>0){
+    if(rem===2){out.push(3,3);rem=0}
+    else if(rem===3){out.push(2,2,2);rem=0}
+    else if(rem===4){out.push(4,2,3,3);rem=0}
+    else if(rem===5){out.push(2,2,2,3,3);rem=0}
+    else if(flip%2===0){out.push(4,2);rem-=2;flip++}
+    else{out.push(2,2,2);rem-=3;flip++}
+  }
+  return out
+}
 
 const lsum=(p,v)=>{const up=effPrice(p);return v.sum||(v.grams?Math.round(up*v.grams/1000):v.qty*up)}
 const keyOf=p=>(p.bundle?'b':'p')+p.id
 const digits=s=>s.replace(/\D/g,'').replace(/^0+/,'')
 const useDebounced=(v,ms=300)=>{const [x,setX]=useState(v);useEffect(()=>{const h=setTimeout(()=>setX(v),ms);return()=>clearTimeout(h)},[v,ms]);return x}
-const upload=file=>new Promise((res,rej)=>{const img=new Image();img.onerror=()=>rej(new Error('Rasm ochilmadi'));img.onload=async()=>{try{const k=Math.min(1,900/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=img.width*k;c.height=img.height*k;c.getContext('2d').drawImage(img,0,0,c.width,c.height);res((await api('/api/upload','POST',{data:c.toDataURL('image/jpeg',0.8)})).url)}catch(e){rej(e)}};img.src=URL.createObjectURL(file)})
+const upload=file=>new Promise((res,rej)=>{const img=new Image();img.onerror=()=>rej(new Error('Rasm ochilmadi'));img.onload=async()=>{try{const k=Math.min(1,900/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);let data=file.type==='image/png'?c.toDataURL('image/png'):c.toDataURL('image/jpeg',0.82);if(data.length>900000)data=c.toDataURL('image/jpeg',0.8);res((await api('/api/upload','POST',{data})).url)}catch(e){rej(e)}};img.src=URL.createObjectURL(file)})
 
 const iso=n=>new Date(Date.now()+5*3600e3-n*864e5).toISOString().slice(0,10)
 const fmt=s=>s?s.split('-').reverse().join('.'):''
@@ -917,23 +958,7 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
         <BundleCarousel bundles={d.bundles} onOpen={setBdet} actionBtn={actionBtn}/>
       </>}
 
-      <div className="sec-head"><h2 className="sec">{t("Katalog")}</h2></div>
-      <div className="cat-grid">
-        {tree.roots.map((c,i)=>{
-          const subCount=tree.childrenOf(c.name).length
-          return <div
-            key={c.name}
-            className={'cat-tile'+(c.image?' has-bg':'')}
-            style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
-            onClick={()=>{setCat(c.name);scrollTo({top:0,behavior:'smooth'})}}
-          >
-            {isAdm&&<CatCamBtn c={c} onReload={onReload} say={say}/>}
-            <b>{cn(c)}</b>
-            {subCount>0&&<span className="cat-sub-badge">{subCount} {t("bo'lim")}</span>}
-            {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
-          </div>
-        })}
-      </div>
+      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
     </>:<>
       {parentObj&&!dq&&<div className="crumb">
         <button onClick={()=>{setCat('');setFam('')}}>{t("Bosh sahifa")}</button>
@@ -947,27 +972,14 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
         <h1>{dq?t("Qidiruv natijalari"):(curCatObj?cn(curCatObj):(fam?t(fam):cat))}</h1>
       </div>
 
-      {subCats.length>0&&<>
-        <div className="subcat-grid">
-          {subCats.map(sc=><div
-            className={'subcat-tile'+(sc.image?' has-bg':'')}
-            style={sc.image?{backgroundImage:`url(${sc.image})`}:undefined}
-            key={sc.name}
-            onClick={()=>{setCat(sc.name);scrollTo({top:0,behavior:'smooth'})}}
-          >
-            {isAdm&&<CatCamBtn c={sc} onReload={onReload} say={say}/>}
-            {!sc.image&&<span className="sub-ic">{EMO[sc.name]||EMO[cat]||'📁'}</span>}
-            <b>{cn(sc)}</b>
-          </div>)}
-        </div>
-      </>}
+      {subCats.length>0&&<BentoTileGrid items={subCats} parentName={cat} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>}
 
-      <div className="chips">
+      {!subCats.length&&<div className="chips">
         {parentObj
           ?<button className={'chip'+(cat===parentObj.name?' on':'')} onClick={()=>setCat(parentObj.name)}>{t("Hammasi")}</button>
           :<button className={'chip'+(!cat&&!fam?' on':'')} onClick={()=>{setCat('');setFam('')}}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>}
         {chipList.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
-      </div>
+      </div>}
 
       {fams.length>0&&<div className="chips sub">
         <button className={'chip'+(!fam?' on':'')} onClick={()=>setFam('')}>{t("Hammasi")}</button>
@@ -994,6 +1006,65 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
     {bdet&&<BundleDetail b={bdet} cart={cart} put={put} close={()=>setBdet(null)}/>}
     {vid&&<div className="sheet" onClick={()=>setVid(null)}><div onClick={e=>e.stopPropagation()}><div className="sheet-handle"/><div className="yt"><iframe src={`https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/></div><a className="btn g" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}} href={`https://youtu.be/${vid}`} target="_blank" rel="noreferrer">YouTube ↗</a><button className="btn g" style={{marginTop:8}} onClick={()=>setVid(null)}>✕</button></div></div>}
   </>
+}
+
+function BentoTileGrid({items,parentName,isAdm,onPick,onReload,say,colorIdx=0}){
+  const {cn}=useLang()
+  const spans=bentoSpans(items.length)
+  return <div className="bento-grid">
+    {items.map((c,i)=>{
+      const sp=spans[i]||3
+      const bg=parentName?catPastel(parentName,colorIdx):catPastel(c.name,i+colorIdx)
+      return <div
+        key={c.name}
+        className={`bento-tile sp-${sp}${isAdm?' adm':''}`}
+        style={{background:bg}}
+        onClick={()=>onPick(c.name)}
+      >
+        {isAdm&&<CatCamBtn c={c} onReload={onReload} say={say}/>}
+        <div className="bento-title">{cn(c)}</div>
+        {c.image
+          ?<div className="bento-pic"><img src={c.image} alt={cn(c)} loading="lazy"/></div>
+          :<span className="bento-emo">{EMO[c.name]||(parentName&&EMO[parentName])||'🛒'}</span>}
+      </div>
+    })}
+  </div>
+}
+
+function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say}){
+  const {t,cn}=useLang()
+  const withSubs=[],plain=[]
+  tree.roots.forEach((r,i)=>{
+    const kids=tree.childrenOf(r.name)
+    if(kids.length>0)withSubs.push({r,kids,i})
+    else plain.push({r,i})
+  })
+  return <>
+    {withSubs.map(({r,kids,i})=><div className="bento-sec" key={r.name}>
+      <div className="bento-sec-head">
+        <h2 onClick={()=>onPick(r.name)}>{cn(r)}</h2>
+        <button type="button" className="bento-sec-more" onClick={()=>onPick(r.name)}>{t("Hammasi")} ›</button>
+      </div>
+      <BentoTileGrid items={kids} parentName={r.name} colorIdx={i} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say}/>
+    </div>)}
+    {plain.length>0&&<div className="bento-sec">
+      <div className="bento-sec-head"><h2>{withSubs.length?t("Boshqa bo'limlar"):t("Katalog")}</h2></div>
+      <BentoTileGrid items={plain.map(x=>x.r)} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say}/>
+    </div>}
+  </>
+}
+
+function ScrollTopBtn(){
+  const [vis,setVis]=useState(false)
+  useEffect(()=>{
+    const onS=()=>setVis(window.scrollY>360)
+    window.addEventListener('scroll',onS,{passive:true})
+    return()=>window.removeEventListener('scroll',onS)
+  },[])
+  if(!vis)return null
+  return <button type="button" className="to-top-btn" aria-label="Yuqoriga" onClick={()=>scrollTo({top:0,behavior:'smooth'})}>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+  </button>
 }
 
 function Promo({d,cart,setCart,onReload,say}){
@@ -1048,27 +1119,12 @@ function Promo({d,cart,setCart,onReload,say}){
 }
 
 function Catalog({d,go,onReload,say}){
-  const {t,cn}=useLang()
+  const {t}=useLang()
   const tree=buildCatTree(d.cats)
   const isAdm=d.role==='admin'||d.role==='superadmin'
   return <>
     <h1>{t("Katalog")}</h1>
-    <div className="cat-grid">
-      {tree.roots.map((c,i)=>{
-        const subCount=tree.childrenOf(c.name).length
-        return <div
-          key={c.name}
-          className={'cat-tile'+(c.image?' has-bg':'')}
-          style={c.image?{backgroundImage:`url(${c.image})`}:{background:CAT_BG[i%CAT_BG.length]}}
-          onClick={()=>go(c.name)}
-        >
-          {isAdm&&<CatCamBtn c={c} onReload={onReload} say={say}/>}
-          <b>{cn(c)}</b>
-          {subCount>0&&<span className="cat-sub-badge">{subCount} {t("bo'lim")}</span>}
-          {!c.image&&<span className="cat-emo">{EMO[c.name]||'🛒'}</span>}
-        </div>
-      })}
-    </div>
+    <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={go} onReload={onReload} say={say}/>
   </>
 }
 
@@ -2406,6 +2462,8 @@ export default function App(){
       {tab==='orders'&&<Orders d={d} act={act}/>}
       {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act} onReload={load}/>}
       {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} say={say} onReload={load} onPreviewAnim={p=>setAnimOverride(p)}/>}
+
+      {(tab==='shop'||tab==='catalog'||tab==='promo')&&<ScrollTopBtn/>}
 
       {showBar&&<button className="cart-bar" onClick={()=>setTab('cart')}>
         <span className="cb-l"><span className="cb-n">{n}</span><span>{t("Savatga o'tish")}</span></span>
