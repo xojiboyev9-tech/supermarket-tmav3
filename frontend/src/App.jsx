@@ -1,5 +1,6 @@
 // JOYI: frontend/src/App.jsx  (GitHub'da shu yo'l bilan yarating)
 import {useState,useEffect,useCallback,useRef,createContext,useContext} from 'react'
+import {parseParadoxDb} from './paradox'
 const API=import.meta.env.PROD?'':(import.meta.env.VITE_API_URL||'http://localhost:8080')
 const tg=window.Telegram?.WebApp
 async function api(p,method='GET',body){
@@ -1895,7 +1896,7 @@ function Products({d,act,say,onReload,initState,initCat}){
   const [addOpen,setAddOpen]=useState(false),[f,setF]=useState(e0),[ed,setEd]=useState(null),[anP,setAnP]=useState(null)
   const [q,setQ]=useState(''),[st,setSt]=useState(initState||'all'),[cat,setCat]=useState(initCat||''),[prio,setPrio]=useState(''),[fam,setFam]=useState('')
   const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
-  const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncAuto,setSyncAuto]=useState(true),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
+  const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncSrc,setSyncSrc]=useState('csv'),[syncMeta,setSyncMeta]=useState(null),[syncProg,setSyncProg]=useState(''),[syncAuto,setSyncAuto]=useState(true),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
   const dq=useDebounced(q)
   const go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
 
@@ -1922,13 +1923,24 @@ function Products({d,act,say,onReload,initState,initCat}){
 
   const pickSyncFile=async e=>{
     const file=e.target.files[0];if(!file)return
-    setSyncRes(null);setSyncFile(file.name)
+    setSyncRes(null);setSyncMeta(null);setSyncRows([]);setSyncFile(file.name)
     try{
-      const txt=await file.text()
-      const rows=parseSyncCsv(txt)
-      setSyncRows(rows)
-      if(!rows.length&&say)say("Faylda mos mahsulotlar topilmadi")
-    }catch(er){if(say)say(er.message)}
+      if(/\.db$/i.test(file.name)){
+        setSyncProg(`${file.name} o'qilmoqda… 0%`)
+        const {items,meta}=await parseParadoxDb(file,pct=>setSyncProg(`${file.name} o'qilmoqda… ${pct}%`))
+        setSyncProg('')
+        setSyncSrc(file.name.slice(0,28))
+        setSyncMeta(meta)
+        setSyncRows(items)
+        if(!items.length&&say)say("Faylda mos mahsulotlar topilmadi")
+      }else{
+        const txt=await file.text()
+        const rows=parseSyncCsv(txt)
+        setSyncSrc('csv')
+        setSyncRows(rows)
+        if(!rows.length&&say)say("Faylda mos mahsulotlar topilmadi")
+      }
+    }catch(er){setSyncProg('');if(say)say(er.message)}
     e.target.value=''
   }
 
@@ -1936,13 +1948,26 @@ function Products({d,act,say,onReload,initState,initCat}){
     if(!syncRows.length||syncBusy)return
     setSyncBusy(true)
     try{
-      const res=await api('/api/admin/products/sync','POST',{items:syncRows,autoActive:syncAuto})
-      setSyncRes(res)
+      const batchSize=3000
+      const batches=Math.ceil(syncRows.length/batchSize)
+      const runId=batches>1?('ui_'+Date.now().toString(36)):null
+      const agg={total:0,updated:0,activated:0,deactivated:0,created:0,skipped:0,source:syncSrc,at:new Date().toISOString(),activeNow:null,setupNow:null}
+      for(let i=0;i<batches;i++){
+        if(batches>1)setSyncProg(`Sinxronlanmoqda… ${i+1}/${batches}`)
+        const chunk=syncRows.slice(i*batchSize,(i+1)*batchSize)
+        const res=await api('/api/admin/products/sync','POST',{items:chunk,autoActive:syncAuto,source:syncSrc,runId})
+        agg.total+=res.total||0;agg.updated+=res.updated||0;agg.activated+=res.activated||0
+        agg.deactivated+=res.deactivated||0;agg.created+=res.created||0;agg.skipped+=res.skipped||0
+        agg.activeNow=res.activeNow??agg.activeNow;agg.setupNow=res.setupNow??agg.setupNow
+        agg.at=res.at||agg.at;agg.source=res.source||agg.source
+      }
+      setSyncProg('')
+      setSyncRes(agg)
       setSyncRows([])
       setVer(v=>v+1)
-      if(say)say(`✅ Sinxronlandi: ${res.updated} yangilandi, ${res.created} yangi`)
+      if(say)say(`✅ Sinxronlandi: ${agg.updated} yangilandi, ${agg.created} yangi`)
       await act(async()=>{})
-    }catch(er){if(say)say(er.message)}
+    }catch(er){setSyncProg('');if(say)say(er.message)}
     setSyncBusy(false)
   }
 
@@ -1962,44 +1987,89 @@ function Products({d,act,say,onReload,initState,initCat}){
       {addOpen&&<div style={{marginTop:10}}><ProductFields f={f} setF={setF} dept={dept} tree={tree} cats={d.cats} families={d.families} onReload={onReload} onPick={pickFor(setF)} onSave={saveNew} onCancel={()=>setAddOpen(false)}/></div>}
     </div>
 
-    {!dept&&<div className="card" style={{padding:syncOpen?14:10}}>
-      <div className="row" style={{margin:0}}>
-        <h2 style={{margin:0}}>📥 POS / CSV sinxronlash</h2>
-        <button className="btn s g" onClick={()=>setSyncOpen(o=>!o)}>{syncOpen?'✕':'Ochish'}</button>
-      </div>
-      {syncOpen&&<div className="sync-box" style={{marginTop:10}}>
-        <div className="m" style={{color:'var(--t2)',marginBottom:8}}>
-          Do'kon dasturidan («Торговля → Отчёты») eksport qilingan <b>CSV / TSV</b> faylni yuklang (ustunlar: Shtrixkod, Nomi, Narx, Qoldiq).<br/>
-          • <b>Faqat bir tomonlama</b> — do'kon bazasiga tegilmaydi.<br/>
-          • Mavjud tovarlarning narxi va faolligi yangilanadi (rasm, kategoriya va o'rin saqlanib qoladi).<br/>
-          • Yangi tovarlar <b>«🆕 Sozlash kerak»</b> bo'limiga tushadi — rasm, kategoriya va 1–5 o'rin qo'yib faollashtirasiz.
+    {!dept&&(()=>{
+      const ls=syncRes||d.lastSync
+      const ageMin=ls?.at?Math.round((Date.now()-new Date(ls.at).getTime())/60000):null
+      const isFresh=ageMin!==null&&ageMin<=60
+      const srcLabel=ls?.source==='csv'?'📄 CSV':(/\.db$/i.test(ls?.source||'')?`🗄️ ${ls.source}`:(ls?.source&&ls.source!=='pos'?`🖥️ ${ls.source}`:'🖥️ POS Avto'))
+      const baseOrigin=(API&&API.startsWith('http'))?API:(typeof window!=='undefined'?window.location.origin:'')
+      const syncUrl=`${baseOrigin}/api/sync/products`
+      return <div className="card" style={{padding:syncOpen?14:10}}>
+        <div className="row" style={{margin:0}}>
+          <h2 style={{margin:0}}>📥 POS / DB / CSV sinxronlash</h2>
+          <button className="btn s g" onClick={()=>setSyncOpen(o=>!o)}>{syncOpen?'✕':'Ochish'}</button>
         </div>
-        <div className="gap" style={{alignItems:'center',marginBottom:8}}>
-          <label className="btn s g" style={{cursor:'pointer'}}>📄 CSV / TSV fayl tanlash<input type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden onChange={pickSyncFile}/></label>
-          {syncFile&&<span className="m">{syncFile} ({syncRows.length} ta)</span>}
-        </div>
-        {syncRows.length>0&&<>
-          <div style={{background:'#fff',borderRadius:12,padding:8,marginBottom:8,border:'1px solid var(--bd)'}}>
-            {syncRows.slice(0,3).map((r,i)=><div key={i} className="m" style={{margin:'2px 0'}}>
-              <b>{r.name||r.barcode}</b> · {so(r.price)}{r.stock!=null?` · qoldiq: ${r.stock}`:''}
-            </div>)}
-            {syncRows.length>3&&<div className="m">… va yana {syncRows.length-3} ta mahsulot</div>}
+        {ls?<div className={'sync-status'+(isFresh?' ok':'')}>
+          <div className="sync-st-top">
+            <span className="sync-st-l">
+              <span className={'sync-dot '+(isFresh?'live':(ageMin!==null&&ageMin>1440?'warn':''))}/>
+              <span>Oxirgi: {fmtDt(ls.at)}</span>
+            </span>
+            <span className="sync-src">{srcLabel}</span>
           </div>
-          <label className="row" style={{margin:'0 0 8px'}}>
-            <span style={{fontSize:12.5}}>Qoldiq &gt; 0 → Faol, 0 → Nofaol</span>
-            <input type="checkbox" checked={syncAuto} onChange={e=>setSyncAuto(e.target.checked)}/>
-          </label>
-          <button className="btn s" style={{width:'100%'}} disabled={syncBusy} onClick={runSync}>
-            {syncBusy?'Sinxronlanmoqda…':`🔄 Sinxronlash (${syncRows.length} ta)`}
-          </button>
-        </>}
-        {syncRes&&<div style={{marginTop:8,padding:8,borderRadius:12,background:'#ECFDF5',color:'#065F46',fontSize:12.5,fontWeight:600}}>
-          ✅ Yangilandi: {syncRes.updated} · Faollashdi: {syncRes.activated} · Nofaol: {syncRes.deactivated} · 🆕 Yangi (sozlash kerak): {syncRes.created}
-          {syncRes.created>0&&<button type="button" className="btn s" style={{marginTop:6,width:'100%'}} onClick={()=>{setSt('setup');setCat('');setSyncOpen(false)}}>🆕 Yangilarni sozlash ({syncRes.created})</button>}
+          <div className="sync-pills">
+            {ls.activeNow!=null&&<span className="sync-pill g">✅ {Number(ls.activeNow).toLocaleString('ru-RU')} faol</span>}
+            <span className="sync-pill">🔄 {ls.updated||0} yangilandi</span>
+            {(ls.activated||0)>0&&<span className="sync-pill g">+{ls.activated} yoqildi</span>}
+            {(ls.deactivated||0)>0&&<span className="sync-pill r">−{ls.deactivated} tugadi</span>}
+            {(ls.created||0)>0&&<button type="button" className="sync-pill a" onClick={()=>{setSt('setup');setCat('');setSyncOpen(false)}}>🆕 {ls.created} yangi →</button>}
+          </div>
+        </div>:<div className={'sync-status '+(d.syncKeySet?'ok':'warn')}>
+          <div className="sync-st-top">
+            <span className="sync-st-l">
+              <span className={'sync-dot '+(d.syncKeySet?'live':'warn')}/>
+              <span>{d.syncKeySet?"POS API tayyor · Ulanish kutilmoqda":"pokupka.DB yoki CSV fayl yuklash tayyor"}</span>
+            </span>
+            <span className="sync-src">{d.syncKeySet?'🟢 POS API':'🗄️ DB / CSV'}</span>
+          </div>
         </div>}
-        <div className="m" style={{marginTop:8,fontSize:11}}>⚙️ Avtomatik POS ulanish: <code>POST /api/sync/products</code> (sarlavha: <code>X-Sync-Key</code>).</div>
-      </div>}
-    </div>}
+        {syncOpen&&<div className="sync-box" style={{marginTop:10}}>
+          <div className="m" style={{color:'var(--t2)',marginBottom:8}}>
+            Do'kon kompyuteridan <b><code>pokupka.DB</code></b> (Copy qilingan) yoki <b>CSV / TSV</b> faylni to'g'ridan-to'g'ri tanlang.<br/>
+            • <b>Faqat bir tomonlama</b> — do'kon bazasiga tegilmaydi.<br/>
+            • Mavjud tovarlarning narxi va faolligi yangilanadi (rasm, kategoriya va o'rin saqlanib qoladi).<br/>
+            • Yangi tovarlar <b>«🆕 Sozlash kerak»</b> bo'limiga tushadi — rasm, kategoriya va 1–5 o'rin qo'yib faollashtirasiz.
+          </div>
+          <div className="gap" style={{alignItems:'center',marginBottom:8,flexWrap:'wrap'}}>
+            <label className="btn s g" style={{cursor:'pointer'}}>🗄️ pokupka.DB / CSV tanlash<input type="file" accept=".db,.DB,.csv,.tsv,.txt,text/csv,text/plain,application/octet-stream" hidden onChange={pickSyncFile}/></label>
+            {syncFile&&<span className="m">{syncFile} {syncRows.length>0?`(${syncRows.length.toLocaleString('ru-RU')} ta)`:''}</span>}
+          </div>
+          {syncProg&&<div className="m" style={{marginBottom:8,fontWeight:700,color:'var(--b)'}}>⏳ {syncProg}</div>}
+          {syncMeta&&<div className="m" style={{marginBottom:6,fontSize:11.5,color:'#065F46',background:'#ECFDF5',padding:'6px 8px',borderRadius:10}}>
+            🗄️ {syncMeta.rawRows.toLocaleString('ru-RU')} qatordan → <b>{syncMeta.uniqueCount.toLocaleString('ru-RU')} ta</b> mahsulot (qoldiq &gt; 0: <b>{syncMeta.inStockCount.toLocaleString('ru-RU')}</b>) · Narx: <code>{syncMeta.priceCol}</code>
+          </div>}
+          {syncRows.length>0&&<>
+            <div style={{background:'#fff',borderRadius:12,padding:8,marginBottom:8,border:'1px solid var(--bd)'}}>
+              {syncRows.slice(0,4).map((r,i)=><div key={i} className="m" style={{margin:'2px 0'}}>
+                <b>{r.name||r.barcode}</b> · {so(r.price)}{r.stock!=null?` · qoldiq: ${r.stock}`:''}
+              </div>)}
+              {syncRows.length>4&&<div className="m">… va yana {(syncRows.length-4).toLocaleString('ru-RU')} ta mahsulot</div>}
+            </div>
+            <label className="row" style={{margin:'0 0 8px'}}>
+              <span style={{fontSize:12.5}}>Qoldiq &gt; 0 → Faol, 0 → Nofaol</span>
+              <input type="checkbox" checked={syncAuto} onChange={e=>setSyncAuto(e.target.checked)}/>
+            </label>
+            <button className="btn s" style={{width:'100%'}} disabled={syncBusy} onClick={runSync}>
+              {syncBusy?(syncProg||'Sinxronlanmoqda…'):`🔄 Sinxronlash (${syncRows.length.toLocaleString('ru-RU')} ta)`}
+            </button>
+          </>}
+          {syncRes&&<div style={{marginTop:8,padding:8,borderRadius:12,background:'#ECFDF5',color:'#065F46',fontSize:12.5,fontWeight:600}}>
+            ✅ Yangilandi: {syncRes.updated} · Faollashdi: {syncRes.activated} · Nofaol: {syncRes.deactivated} · 🆕 Yangi (sozlash kerak): {syncRes.created}
+            {syncRes.created>0&&<button type="button" className="btn s" style={{marginTop:6,width:'100%'}} onClick={()=>{setSt('setup');setCat('');setSyncOpen(false)}}>🆕 Yangilarni sozlash ({syncRes.created})</button>}
+          </div>}
+          <div className="sync-api-card">
+            <div className="sync-api-h">
+              <span>🖥️ Avtomatik POS ulanish (keyinroq uchun)</span>
+              <span className={'sync-pill '+(d.syncKeySet?'g':'a')} style={{cursor:'default'}}>{d.syncKeySet?'SYNC_API_KEY ✅':'Ixtiyoriy'}</span>
+            </div>
+            <div className="sync-url-row">
+              <code>{syncUrl}</code>
+              <button type="button" className="sync-copy-btn" onClick={()=>copyText(syncUrl,()=>say&&say('API manzil nusxalandi ✅'))}>📋</button>
+            </div>
+          </div>
+        </div>}
+      </div>
+    })()}
 
     <input className="search search-plain" placeholder="🔍 Nomi yoki shtrixkod" value={q} onChange={e=>setQ(e.target.value)}/>
     <div className="chips">

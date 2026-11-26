@@ -1,5 +1,5 @@
 // JOYI: backend/src/orders.js  (GitHub'da shu yo'l bilan yarating)
-const {pool,q,audit,getSetting}=require('./db');
+const {pool,q,audit,getSetting,setSetting}=require('./db');
 let N={staff:async()=>{},user:async()=>{}};exports.setNotifier=n=>{N=n};
 const bad=m=>{const e=new Error(m);e.status=400;return e};
 const km=(a,b)=>{const r=x=>x*Math.PI/180,h=Math.sin(r(b.lat-a.lat)/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(r(b.lng-a.lng)/2)**2;return 12742*Math.asin(Math.sqrt(h))};
@@ -195,7 +195,18 @@ exports.syncProducts=async(actorId,rawItems,opts={})=>{
   }
   await c.query('commit');
  }catch(e){await c.query('rollback');throw e}finally{c.release()}
- const res={total:items.length,updated,activated,deactivated,created,skipped};
+ const counts=(await q("select count(*)::int total_now,count(*) filter(where active)::int active_now,count(*) filter(where needs_setup)::int setup_now from products")).rows[0]||{};
+ const source=String(opts.source||(actorId?'csv':'pos')).trim().slice(0,30)||'pos';
+ const runId=opts.runId?String(opts.runId).trim().slice(0,48):null;
+ const res={total:items.length,updated,activated,deactivated,created,skipped,source,at:new Date().toISOString(),activeNow:counts.active_now||0,setupNow:counts.setup_now||0,totalNow:counts.total_now||0};
+ let saved={...res,runId};
+ if(runId){
+  const prev=(await q("select value from settings where key='last_sync'")).rows[0]?.value;
+  if(prev&&prev.runId===runId){
+   saved={...res,runId,total:(prev.total||0)+res.total,updated:(prev.updated||0)+res.updated,activated:(prev.activated||0)+res.activated,deactivated:(prev.deactivated||0)+res.deactivated,created:(prev.created||0)+res.created,skipped:(prev.skipped||0)+res.skipped};
+  }
+ }
+ await setSetting('last_sync',saved);
  await audit(actorId||0,'products.sync','products',res);
  return res;
 };

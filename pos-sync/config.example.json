@@ -1,0 +1,24 @@
+{
+  "fbHost": "127.0.0.1",
+  "fbPort": 3050,
+  "fbDatabase": "D:\\SKLAD\\Base\\Base.FDB",
+  "fbUser": "SYSDBA",
+  "fbPassword": "masterkey",
+  "textEncoding": "auto",
+
+  "apiUrl": "https://YOUR-RAILWAY-APP.up.railway.app",
+  "syncApiKey": "YOUR_SYNC_API_KEY",
+  "source": "pos-1kassa",
+  "autoActive": true,
+  "batchSize": 4000,
+
+  "table": "",
+  "columns": {
+    "barcode": "",
+    "name": "",
+    "price": "",
+    "stock": "",
+    "unit": ""
+  },
+  "sqlQuery": ""
+}
