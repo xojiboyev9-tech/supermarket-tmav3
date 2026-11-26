@@ -312,7 +312,7 @@ app.get('/api/stats',need(...ADM),wrap(async(req,res)=>{
  res.json({totals:t,days,granularity:oneDay?'hour':'day',byCat,products:pc,customers:cust.total,newCustomers:cust.added})}));
 const YT=/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/;
 const KIND={banners:['image','title','subtitle','link'],videos:['title','yt_id'],bundles:['title','title_ru','description','description_ru','image','price']};
-const PSEL='id,category,name,name_uz,description,min_grams,min_sum,weight_g,priority,family,sales_count,unit,price,sale_price,sale_until,image,age_min';
+const PSEL='id,pos,category,name,name_uz,description,min_grams,min_sum,weight_g,priority,family,sales_count,unit,price,sale_price,sale_until,image,age_min';
 app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),fam=String(req.query.family||'').trim().slice(0,60),sale=req.query.sale==='1',pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
  if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
@@ -320,9 +320,21 @@ app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').tr
  if(sale)w.push(SALE_SQL);
  const pub=await getPub();
  if(pub.wh)w.push('(stock is null or stock>0)');
- const ord=sale?'coalesce(priority,3) asc,sale_until nulls last,coalesce(sales_count,0) desc,name':'coalesce(priority,3) asc,coalesce(sales_count,0) desc,name';
+ const ord=sale?'coalesce(priority,3) asc,sale_until nulls last,coalesce(sales_count,0) desc,name':(cat&&!s&&!fam?'pos asc nulls last,':'')+'coalesce(priority,3) asc,coalesce(sales_count,0) desc,name';
  const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by ${ord} limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
+/* Manual order inside a category view: move product to place N (1-based); others shift. pos<=0 → reset whole view to automatic order. */
+app.put('/api/products/:id/position',need(...ADM),wrap(async(req,res)=>{const id=+req.params.id,cat=String(req.body.cat||'').slice(0,120),pos=Math.round(+req.body.pos||0);
+ if(!id||!cat)return res.status(400).json({error:'Kategoriya kerak'});
+ const W=`active and (category=$1 or category in (select name from categories where parent=$1) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$1))`;
+ if(pos<=0){await q(`update products set pos=null where ${W}`,[cat]);bustPub();await audit(req.me.tg_id,'product.pos.reset','cat:'+cat);return res.json({success:true})}
+ const pub=await getPub();const vis=pub.wh?'(stock is null or stock>0)':'true';
+ const rows=(await q(`select id,${vis} v from products where ${W} order by pos asc nulls last,coalesce(priority,3) asc,coalesce(sales_count,0) desc,name`,[cat])).rows;
+ const shown=rows.filter(r=>r.v).map(r=>r.id),hidden=rows.filter(r=>!r.v).map(r=>r.id);
+ if(!shown.includes(id))return res.status(404).json({error:'Mahsulot bu katalogda topilmadi'});
+ const ids=[...O.moveTo(shown,id,pos),...hidden];
+ await q('update products p set pos=v.n from unnest($1::int[]) with ordinality v(id,n) where p.id=v.id',[ids]);
+ bustPub();await audit(req.me.tg_id,'product.pos','product:'+id,{cat,pos});res.json({success:true,pos:Math.min(Math.max(1,pos),shown.length)})}));
 app.get('/api/admin/products',need('worker','operator',...ADM),wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),st=req.query.state,cat=String(req.query.cat||''),fam=String(req.query.family||'').trim().slice(0,60),pr=Number(req.query.prio)||0,pg=Math.max(0,Math.min(2000,+req.query.page||0)),w=['true'],p=[];
  if(req.me.role==='worker'){p.push(req.me.department);w.push(`category=$${p.length}`)}
  else if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}

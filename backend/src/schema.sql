@@ -98,6 +98,7 @@ alter table products add column if not exists priority smallint default 3;
 alter table products add column if not exists family text;
 alter table products add column if not exists sales_count int default 0;
 alter table products add column if not exists needs_setup boolean default false;
+alter table products add column if not exists pos int;
 create index if not exists products_rank_idx on products(active,priority asc,sales_count desc,name asc);
 create index if not exists products_family_idx on products(family) where family is not null;
 create index if not exists products_setup_idx on products(needs_setup) where needs_setup;

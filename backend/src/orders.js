@@ -286,3 +286,5 @@ exports.editApply=async(userId,id,changes)=>{
 };
 exports.bad=bad;
                                                                                                                                                                  
+/* Move one id to 1-based position `pos` inside an ordered id list (others shift). */
+exports.moveTo=(ids,id,pos)=>{const a=ids.filter(x=>x!==id);const i=Math.max(0,Math.min(a.length,(Math.round(+pos)||1)-1));a.splice(i,0,id);return a};

@@ -947,6 +947,8 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
   const tree=buildCatTree(d.cats)
   const fams=d.families||[]
   const isAdm=d.role==='admin'||d.role==='superadmin'
+  const [posP,setPosP]=useState(null)
+  const canPos=isAdm&&!!cat&&!dq&&!fam
 
   const load=useCallback((n,reset)=>{
     if(!dq&&!cat&&!fam){setItems([]);setMore(false);return}
@@ -1036,8 +1038,8 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
       </div>}
 
       <div className="grid">
-        {items.map(p=><div className="card prod" key={p.id} onClick={()=>{setDetMode('view');setDet(p)}}>
-          <Thumb p={p}/>
+        {items.map((p,i)=><div className="card prod" key={p.id} onClick={()=>{setDetMode('view');setDet(p)}}>
+          {canPos?<div className="pos-wrap"><Thumb p={p}/><button type="button" className={'pos-badge'+(p.pos?' set':'')} onClick={e=>{st(e);setPosP({p,n:i+1})}}>{i+1}</button></div>:<Thumb p={p}/>}
           <div className="pbody">
             <PriceTag p={p}/>
             <div className="name">{pn(p)}</div>
@@ -1053,8 +1055,33 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}} onAdminOpen={isAdm?p=>{setDetMode('stats');setDet(p)}:undefined}/>}
     {det&&<Detail key={det.id+':'+detMode} p={det} d={d} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh} initMode={detMode} onReload={onReload} onProductUpdated={onProdUpd} say={say}/>}
     {bdet&&<BundleDetail b={bdet} cart={cart} put={put} close={()=>setBdet(null)}/>}
+    {posP&&<PosSheet p={posP.p} cur={posP.n} total={items.length+(more?'+':'')} cat={cat} close={()=>setPosP(null)} done={()=>{setPosP(null);load(0,true)}} say={say}/>}
     {vid&&<div className="sheet" onClick={()=>setVid(null)}><div onClick={e=>e.stopPropagation()}><div className="sheet-handle"/><div className="yt"><iframe src={`https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/></div><a className="btn g" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}} href={`https://youtu.be/${vid}`} target="_blank" rel="noreferrer">YouTube ↗</a><button className="btn g" style={{marginTop:8}} onClick={()=>setVid(null)}>✕</button></div></div>}
   </>
+}
+
+function PosSheet({p,cur,total,cat,close,done,say}){
+  const {pn}=useLang()
+  const [v,setV]=useState(String(cur)),[busy,setBusy]=useState(false)
+  const send=async pos=>{if(busy)return;setBusy(true);try{await api('/api/products/'+p.id+'/position','PUT',{pos,cat});say?.(pos>0?`✅ ${pos}-o'ringa ko'chirildi`:'✅ Avtomatik tartib tiklandi');done()}catch(e){say?.(e.message||'Xato');setBusy(false)}}
+  const n=Math.round(+v)
+  return <div className="sheet" onClick={close}><div onClick={e=>e.stopPropagation()}>
+    <div className="sheet-handle"/>
+    <div className="pos-head"><b>{pn(p)}</b><span>Hozir: {cur}-o'rin · jami {total}</span></div>
+    <label className="pos-lbl">Yangi tartib raqami</label>
+    <div className="pos-row">
+      <button type="button" className="btn g" onClick={()=>setV(x=>String(Math.max(1,(+x||1)-1)))}>−</button>
+      <input className="in pos-inp" type="number" inputMode="numeric" min="1" value={v} onChange={e=>setV(e.target.value.replace(/\D/g,'').slice(0,5))} onKeyDown={e=>{if(e.key==='Enter'&&n>=1)send(n)}} autoFocus/>
+      <button type="button" className="btn g" onClick={()=>setV(x=>String((+x||0)+1))}>+</button>
+    </div>
+    <div className="pos-quick">
+      <button type="button" className="btn s g" onClick={()=>send(1)} disabled={busy}>⬆ Eng boshiga</button>
+      {cur>1&&<button type="button" className="btn s g" onClick={()=>send(cur-1)} disabled={busy}>↑ 1 ta oldinga</button>}
+      <button type="button" className="btn s g" onClick={()=>send(cur+1)} disabled={busy}>↓ 1 ta orqaga</button>
+    </div>
+    <button type="button" className="btn" style={{marginTop:12}} disabled={busy||!(n>=1)||n===cur} onClick={()=>send(n)}>{busy?'…':`${n>=1?n:'?'}-o'ringa qo'yish`}</button>
+    <button type="button" className="btn g" style={{marginTop:8}} disabled={busy} onClick={()=>confirm("Bu katalogdagi barcha qo'lda qo'yilgan tartib o'chirilib, avtomatik (prioritet + sotuv) tartibga qaytarilsinmi?")&&send(0)}>↺ Katalogni avtomatik tartibga qaytarish</button>
+  </div></div>
 }
 
 function QuickSubCatBox({parent,onReload,say,close}){
