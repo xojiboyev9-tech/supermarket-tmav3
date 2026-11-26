@@ -11,8 +11,9 @@ const NEXT_ST={new:['accepted','cancelled'],accepted:['preparing','cancelled'],p
 const ST_UZ={new:'Yangi',accepted:'Qabul qilindi',preparing:"Yig'ilmoqda",ready:'Tayyor',completed:'Topshirildi',cancelled:'Bekor qilindi',awaiting_confirm:'Narx tasdiqlash',age_check:'Yosh tasdiqlash',sub_pending:'Almashtirish'};
 const CAT_WHERE='(category=$1 or category in (select name from categories where parent=$1) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$1))';
 
+let resolvedModel=null;
 const apiKey=()=>String(process.env.GEMINI_API_KEY||'').trim();
-const modelName=()=>String(process.env.GEMINI_MODEL||'gemini-2.5-flash').trim()||'gemini-2.5-flash';
+const modelName=()=>String(process.env.GEMINI_MODEL||resolvedModel||'gemini-3.8').trim()||'gemini-3.8';
 exports.isReady=()=>Boolean(apiKey());
 exports.modelName=modelName;
 
@@ -81,17 +82,21 @@ exports.cancelAction=(user,actionId)=>{
  return{ok:true};
 };
 
-/* Raw Gemini REST call (native Node 18+ fetch, zero npm deps) */
-async function callGemini({system,contents,tools}){
- const key=apiKey();
- if(!key)throw O.bad("AI ulanmagan: Railway Variables bo'limiga GEMINI_API_KEY qo'shing.");
- const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName())}:generateContent?key=${encodeURIComponent(key)}`;
- const body={
-  system_instruction:{parts:[{text:system}]},
-  contents,
-  generationConfig:{temperature:0.3,maxOutputTokens:1024}
- };
- if(tools&&tools.length)body.tools=[{functionDeclarations:tools}];
+/* Raw Gemini REST call (native Node 18+ fetch, zero npm deps, auto-fallback on deprecated model) */
+async function discoverModel(key,exclude){
+ try{
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,{signal:AbortSignal.timeout(10000)});
+  if(!r.ok)return null;
+  const d=await r.json().catch(()=>({}));
+  const list=(d.models||[]).filter(m=>Array.isArray(m.supportedGenerationMethods)&&m.supportedGenerationMethods.includes('generateContent'))
+   .map(m=>String(m.name||'').replace(/^models\//,''))
+   .filter(n=>n&&n!==exclude&&/^gemini-/i.test(n)&&!/embedding|tts|image|vision|aqa|robotics|computer/i.test(n));
+  const flash=list.filter(n=>/flash/i.test(n)).sort().reverse();
+  return flash[0]||list.sort().reverse()[0]||null;
+ }catch{return null}
+}
+async function postGemini(key,model,body){
+ const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
  let res;
  try{
   res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
@@ -99,6 +104,35 @@ async function callGemini({system,contents,tools}){
   throw O.bad(e?.name==='TimeoutError'?"AI javob berishi cho'zilib ketdi, qayta urinib ko'ring.":"AI serveriga ulanib bo'lmadi, qayta urinib ko'ring.");
  }
  const data=await res.json().catch(()=>({}));
+ return{res,data};
+}
+async function callGemini({system,contents,tools}){
+ const key=apiKey();
+ if(!key)throw O.bad("AI ulanmagan: Railway Variables bo'limiga GEMINI_API_KEY qo'shing.");
+ const body={
+  system_instruction:{parts:[{text:system}]},
+  contents,
+  generationConfig:{temperature:0.3,maxOutputTokens:1024}
+ };
+ if(tools&&tools.length)body.tools=[{functionDeclarations:tools}];
+ let model=modelName();
+ let {res,data}=await postGemini(key,model,body);
+ if(!res.ok&&(res.status===400||res.status===404)){
+  const msg=String(data?.error?.message||'');
+  if(/no longer available|not found|not supported|deprecated|unknown model/i.test(msg)){
+   const hint=/use\s+(?:models\/)?([a-zA-Z0-9._-]+)/i.exec(msg)?.[1];
+   let next=(hint&&hint!==model)?hint:await discoverModel(key,model);
+   if(next&&next!==model){
+    let retry=await postGemini(key,next,body);
+    if(!retry.res.ok&&hint){
+     const disc=await discoverModel(key,next);
+     if(disc&&disc!==next){next=disc;retry=await postGemini(key,next,body)}
+    }
+    res=retry.res;data=retry.data;
+    if(res.ok)resolvedModel=next;
+   }
+  }
+ }
  if(!res.ok){
   const msg=data?.error?.message||'';
   if(res.status===429)throw O.bad("AI vaqtincha band (limitga yetdi). 1 daqiqadan keyin qayta urinib ko'ring.");
