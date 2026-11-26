@@ -8,11 +8,13 @@
  *  - Do'kon bazasiga (Base.FDB) HECH QACHON yozmaydi — faqat ISOLATION_READ_COMMITTED_READ_ONLY + SELECT.
  *  - Mini App'dagi rasm, kategoriya, o'zbekcha nom, 1-5 o'rin va sotuvlarni buzmaydi.
  *  - Rejimlar:
+ *      node sync.js --csv       -> Tayyor tovarlar.csv faylini yaratish (Mini App'ga qo'lda yuklash uchun)
  *      node sync.js --inspect   -> Baza jadvallarini ko'rish + 5 ta namuna + Railway ulanishini tekshirish
  *      node sync.js             -> Barcha tovarlarni bo'lib (batch) Mini App'ga sinxronlash
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const DIR = __dirname;
@@ -21,6 +23,7 @@ const EXAMPLE_PATH = path.join(DIR, 'config.example.json');
 const LOG_PATH = path.join(DIR, 'sync.log');
 const LOCK_PATH = path.join(DIR, 'sync.lock');
 const INSPECT = process.argv.includes('--inspect');
+const CSV_MODE = process.argv.includes('--csv');
 
 let Firebird;
 try {
@@ -91,9 +94,16 @@ function assertReadOnlySql(sql) {
   return clean;
 }
 
-function fbAttach(cfg) {
-  const opts = {
-    host: cfg.fbHost || '127.0.0.1',
+function fbAttachOnce(opts) {
+  return new Promise((resolve, reject) => {
+    Firebird.attach(opts, (err, db) => (err ? reject(err) : resolve(db)));
+  });
+}
+
+async function fbAttach(cfg) {
+  const host = cfg.fbHost || '127.0.0.1';
+  const baseOpts = {
+    host,
     port: Number(cfg.fbPort) || 3050,
     database: cfg.fbDatabase || 'D:\\SKLAD\\Base\\Base.FDB',
     user: cfg.fbUser || 'SYSDBA',
@@ -102,9 +112,20 @@ function fbAttach(cfg) {
     pageSize: 4096,
     retryConnectionInterval: 1000
   };
-  return new Promise((resolve, reject) => {
-    Firebird.attach(opts, (err, db) => (err ? reject(err) : resolve(db)));
-  });
+  try {
+    return await fbAttachOnce(baseOpts);
+  } catch (err) {
+    if ((host === '127.0.0.1' || host === 'localhost') && /ECONNREFUSED|ETIMEDOUT/i.test(String(err.code || err.message))) {
+      console.log("ℹ️  Mahalliy 127.0.0.1:3050 javob bermadi — tarmoqdagi 'SKLAD' serveriga ulanib ko'rilmoqda...");
+      try {
+        return await fbAttachOnce({ ...baseOpts, host: 'SKLAD' });
+      } catch {
+        err.message += " (Agar KASSA kompyuterida ishlatayotgan bo'lsangiz, config.json da 'fbHost' ga SKLAD kompyuteri IP manzilini yozing)";
+        throw err;
+      }
+    }
+    throw err;
+  }
 }
 
 function fbReadQuery(db, sql, params = []) {
@@ -288,11 +309,35 @@ function releaseLock() {
   try { if (fs.existsSync(LOCK_PATH)) fs.unlinkSync(LOCK_PATH); } catch { /* ignore */ }
 }
 
+function csvEsc(v) {
+  const s = v === null || v === undefined ? '' : String(v).replace(/\r?\n/g, ' ').trim();
+  return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function writeProductsCsv(items) {
+  const lines = ['Штрихкод;Наименование;Цена;Остаток'];
+  for (const it of items) {
+    lines.push([csvEsc(it.barcode), csvEsc(it.name), csvEsc(it.price), csvEsc(it.stock ?? '')].join(';'));
+  }
+  const content = '\uFEFF' + lines.join('\r\n') + '\r\n';
+  const localOut = path.join(DIR, 'tovarlar.csv');
+  fs.writeFileSync(localOut, content, 'utf8');
+  let desktopOut = null;
+  const desktopDir = path.join(os.homedir(), 'Desktop');
+  if (fs.existsSync(desktopDir)) {
+    try {
+      desktopOut = path.join(desktopDir, 'tovarlar.csv');
+      fs.writeFileSync(desktopOut, content, 'utf8');
+    } catch { desktopOut = null; }
+  }
+  return { localOut, desktopOut };
+}
+
 async function main() {
   const cfg = loadConfig();
   const enc = cfg.textEncoding || 'auto';
 
-  if (!INSPECT) acquireLock();
+  if (!INSPECT && !CSV_MODE) acquireLock();
   let db;
   try {
     console.log(`🔌 Firebird bazaga ulanilmoqda (faqat o'qish): ${cfg.fbHost || '127.0.0.1'}:${cfg.fbPort || 3050} -> ${cfg.fbDatabase}`);
@@ -341,13 +386,6 @@ async function main() {
       return;
     }
 
-    // Normal Sync Mode
-    const apiUrl = String(cfg.apiUrl || '').replace(/\/+$/, '');
-    const key = String(cfg.syncApiKey || '').trim();
-    if (!apiUrl || apiUrl.includes('YOUR-RAILWAY-APP') || !key || key === 'YOUR_SYNC_API_KEY') {
-      throw new Error("config.json ichida 'apiUrl' va 'syncApiKey' to'ldirilmagan!");
-    }
-
     let querySql, colMap = null;
     if (customSql) {
       querySql = assertReadOnlySql(customSql);
@@ -355,7 +393,11 @@ async function main() {
       const schema = await listSchema(db, enc);
       const det = detectProductTable(schema, cfg);
       if (!det || !det.cols.name || !det.cols.price) {
-        throw new Error("Mahsulot jadvali avtomatik topilmadi. Avval '1-tekshirish.bat' ni ishga tushiring.");
+        console.log(`\n📋 Bazadagi jadvallar (${schema.size} ta):`);
+        for (const [tbl, cols] of schema.entries()) {
+          console.log(`  • ${tbl}: ${cols.slice(0, 10).join(', ')}`);
+        }
+        throw new Error("Mahsulot jadvali avtomatik topilmadi. Yuqoridagi ro'yxatni rasmga olib yuboring!");
       }
       colMap = det.cols;
       const selectCols = [det.cols.barcode, det.cols.name, det.cols.price, det.cols.stock, det.cols.unit]
@@ -364,6 +406,9 @@ async function main() {
         .map(quoteIdent)
         .join(', ');
       querySql = `SELECT ${selectCols} FROM ${quoteIdent(det.table)}`;
+      if (CSV_MODE) {
+        console.log(`🎯 Jadval: ${det.table} (name=${det.cols.name}, price=${det.cols.price}, stock=${det.cols.stock || '-'}, barcode=${det.cols.barcode || '-'})`);
+      }
     }
 
     const rawRows = await fbReadQuery(db, querySql);
@@ -374,8 +419,28 @@ async function main() {
     }
     log(`Base.FDB dan o'qildi: ${rawRows.length} qator -> yaroqli: ${items.length} ta mahsulot.`);
     if (!items.length) {
-      log("Yuboriladigan mahsulot topilmadi — sinxronizatsiya to'xtatildi.");
+      log("Yuboriladigan mahsulot topilmadi — jarayon to'xtatildi.");
       return;
+    }
+
+    if (CSV_MODE) {
+      const { localOut, desktopOut } = writeProductsCsv(items);
+      console.log(`\n📦 Dastlabki 5 ta namuna:`);
+      for (const it of items.slice(0, 5)) {
+        console.log(`   ${it.barcode || '-'} | ${it.name} | ${it.price} so'm | qoldiq: ${it.stock ?? '-'}`);
+      }
+      console.log(`\n✅ TAYYOR! ${items.length} ta mahsulot CSV faylga yozildi:`);
+      console.log(`   📄 ${localOut}`);
+      if (desktopOut) console.log(`   🖥️  Ish stoli (Desktop): ${desktopOut}`);
+      console.log(`\nEndi 'tovarlar.csv' faylini Telegram Mini App -> Tovarlar -> POS / CSV sinxronlash orqali yuklang!`);
+      return;
+    }
+
+    // Normal Sync Mode -> Railway
+    const apiUrl = String(cfg.apiUrl || '').replace(/\/+$/, '');
+    const key = String(cfg.syncApiKey || '').trim();
+    if (!apiUrl || apiUrl.includes('YOUR-RAILWAY-APP') || !key || key === 'YOUR_SYNC_API_KEY') {
+      throw new Error("config.json ichida 'apiUrl' va 'syncApiKey' to'ldirilmagan!");
     }
 
     const batchSize = Math.max(200, Math.min(8000, Number(cfg.batchSize) || 4000));
@@ -416,7 +481,7 @@ async function main() {
     if (db) {
       await new Promise((r) => db.detach(() => r()));
     }
-    if (!INSPECT) releaseLock();
+    if (!INSPECT && !CSV_MODE) releaseLock();
   }
 }
 

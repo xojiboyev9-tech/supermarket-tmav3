@@ -5,6 +5,7 @@
   "description": "Read-only Firebird POS -> TEGEN Market Telegram Mini App sync agent",
   "main": "sync.js",
   "scripts": {
+    "csv": "node sync.js --csv",
     "inspect": "node sync.js --inspect",
     "sync": "node sync.js"
   },

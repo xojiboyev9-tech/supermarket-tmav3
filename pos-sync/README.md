@@ -9,7 +9,15 @@ Bu papka do'kon kompyuteridagi **Firebird (`D:\SKLAD\Base\Base.FDB`)** bazasidan
 
 ---
 
-## O'rnatish (5 daqiqa)
+## Eng tezkor yo'l: Tayyor `tovarlar.csv` chiqarish (Railway sozlamasdan!)
+1. Kompyuterga **Node.js LTS** o'rnating (https://nodejs.org).
+2. **`0-csv-chiqarish.bat`** faylini 2 marta bosing.
+3. Ish stoliga (Desktop) va shu papkaga tayyor **`tovarlar.csv`** yaratiladi.
+4. Shu `tovarlar.csv` faylni Telegram Mini App → **Boshqaruv → Tovarlar → `📥 POS / CSV sinxronlash`** orqali yuklang!
+
+---
+
+## Avto-sinxronlashni o'rnatish (5 daqiqa)
 
 ### 1-qadam: Railway'da maxfiy kalit yaratish
 1. [railway.app](https://railway.app) → loyihangiz → **Variables** bo'limini oching.

@@ -6,3 +6,4 @@ dist
 pos-sync/config.json
 pos-sync/sync.log
 pos-sync/sync.lock
+pos-sync/tovarlar.csv
