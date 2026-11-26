@@ -103,8 +103,8 @@ create index if not exists products_rank_idx on products(active,priority asc,sal
 create index if not exists products_family_idx on products(family) where family is not null;
 create index if not exists products_setup_idx on products(needs_setup) where needs_setup;
 alter table users add column if not exists role_title text;
+alter table users add column if not exists can_ai boolean default false;
 insert into settings values('custom_roles','[]') on conflict do nothing;
-insert into settings values('ai','{"customerEnabled":true,"customerDailyLimit":15}') on conflict do nothing;
 create index if not exists order_items_prod_idx on order_items(product_id);
 
 

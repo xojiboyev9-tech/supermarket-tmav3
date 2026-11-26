@@ -1,14 +1,12 @@
-// AI Assistant powered by Google Gemini (Admin + Customer, text + voice, confirmation-gated mutations)
+// Admin-only AI Assistant powered by Google Gemini (superadmin + selected admins via can_ai)
 const crypto=require('crypto');
-const {q,audit,getSetting,setSetting}=require('./db');
+const {q,audit,getSetting}=require('./db');
 const O=require('./orders');
 
 let hooks={runBroadcast:null,bustPub:()=>{}};
 exports.init=h=>{hooks={...hooks,...h}};
 
-const DEFAULT_CFG={customerEnabled:true,customerDailyLimit:15};
 const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and (sale_until is null or sale_until>now())';
-const PSEL='id,pos,category,name,name_uz,description,min_grams,min_sum,weight_g,priority,family,sales_count,unit,price,sale_price,sale_until,image,age_min';
 const NEXT_ST={new:['accepted','cancelled'],accepted:['preparing','cancelled'],preparing:['ready','cancelled'],ready:['completed'],awaiting_confirm:['cancelled'],age_check:['cancelled'],sub_pending:['cancelled']};
 const ST_UZ={new:'Yangi',accepted:'Qabul qilindi',preparing:"Yig'ilmoqda",ready:'Tayyor',completed:'Topshirildi',cancelled:'Bekor qilindi',awaiting_confirm:'Narx tasdiqlash',age_check:'Yosh tasdiqlash',sub_pending:'Almashtirish'};
 const CAT_WHERE='(category=$1 or category in (select name from categories where parent=$1) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$1))';
@@ -19,8 +17,9 @@ exports.isReady=()=>Boolean(apiKey());
 exports.modelName=modelName;
 
 const so=(n,l='uz')=>Number(n||0).toLocaleString('ru-RU')+(l==='ru'?' сум':" so'm");
-const isAdm=u=>Boolean(u&&['admin','superadmin'].includes(u.role));
+const canAi=u=>Boolean(u&&(u.role==='superadmin'||(u.role==='admin'&&u.can_ai)));
 const canBc=u=>Boolean(u&&(u.role==='superadmin'||(u.role==='admin'&&u.can_broadcast)));
+exports.canAi=canAi;
 
 function tashkentNow(){
  const now=new Date();
@@ -28,74 +27,44 @@ function tashkentNow(){
  return{date:`${parts.year}-${parts.month}-${parts.day}`,time:`${parts.hour}:${parts.minute}`};
 }
 
-/* Settings & per-day usage quotas */
-async function getConfig(){
- const r=await getSetting('ai').catch(()=>null);
- if(!r||typeof r!=='object')return{...DEFAULT_CFG};
- return{
-  customerEnabled:r.customerEnabled!==false,
-  customerDailyLimit:Math.max(1,Math.min(200,Math.round(+r.customerDailyLimit)||DEFAULT_CFG.customerDailyLimit))
- };
-}
-exports.getConfig=getConfig;
-
-async function saveConfig(actorId,body){
- const cur=await getConfig();
- const v={
-  customerEnabled:typeof body.customerEnabled==='boolean'?body.customerEnabled:cur.customerEnabled,
-  customerDailyLimit:body.customerDailyLimit!=null?Math.max(1,Math.min(200,Math.round(+body.customerDailyLimit)||cur.customerDailyLimit)):cur.customerDailyLimit
- };
- await setSetting('ai',v);
- hooks.bustPub();
- await audit(actorId,'settings.ai','settings',v);
- return v;
-}
-exports.saveConfig=saveConfig;
-
-const usageMap=new Map(); // `${mode}:${tg_id}:${date}` -> count
-const dayTotals=new Map(); // `${mode}:${date}` -> count
-function checkQuota(mode,user,limit){
+const usageMap=new Map();
+const dayTotals=new Map();
+function checkQuota(user,limit=200){
  const {date}=tashkentNow();
- if(usageMap.size>2000){for(const k of usageMap.keys())if(!k.endsWith(':'+date))usageMap.delete(k)}
- const key=`${mode}:${user.tg_id}:${date}`;
+ if(usageMap.size>1000){for(const k of usageMap.keys())if(!k.endsWith(':'+date))usageMap.delete(k)}
+ const key=`${user.tg_id}:${date}`;
  const used=usageMap.get(key)||0;
- if(mode==='customer'&&isAdm(user))return{ok:true,used,limit,remaining:limit};
- if(used>=limit)return{ok:false,used,limit,remaining:0};
+ if(used>=limit)return{ok:false,used,limit};
  usageMap.set(key,used+1);
- const tk=`${mode}:${date}`;
- dayTotals.set(tk,(dayTotals.get(tk)||0)+1);
- return{ok:true,used:used+1,limit,remaining:limit-used-1};
+ dayTotals.set(date,(dayTotals.get(date)||0)+1);
+ return{ok:true,used:used+1,limit};
 }
 exports.getTodayStats=()=>{
  const {date}=tashkentNow();
- return{date,customerRequests:dayTotals.get('customer:'+date)||0,adminRequests:dayTotals.get('admin:'+date)||0};
+ return{date,requests:dayTotals.get(date)||0};
 };
 
 /* Short-term conversation memory (text only, never audio) */
-const convMem=new Map(); // `${mode}:${tg_id}` -> {turns, at}
+const convMem=new Map(); // tg_id -> {turns, at}
 const MEM_TTL=30*60*1000;
-function getTurns(mode,tgId){
- const hit=convMem.get(`${mode}:${tgId}`);
+function getTurns(tgId){
+ const hit=convMem.get(String(tgId));
  if(!hit||Date.now()-hit.at>MEM_TTL)return[];
  return hit.turns;
 }
-function pushTurn(mode,tgId,userTxt,modelTxt){
- const key=`${mode}:${tgId}`;
- const prev=getTurns(mode,tgId);
- const next=[...prev,{role:'user',parts:[{text:String(userTxt||'').slice(0,800)}]},{role:'model',parts:[{text:String(modelTxt||'').slice(0,1200)}]}].slice(-8);
+function pushTurn(tgId,userTxt,modelTxt){
+ const key=String(tgId);
+ const next=[...getTurns(tgId),{role:'user',parts:[{text:String(userTxt||'').slice(0,800)}]},{role:'model',parts:[{text:String(modelTxt||'').slice(0,1200)}]}].slice(-8);
  convMem.set(key,{turns:next,at:Date.now()});
- if(convMem.size>500){
+ if(convMem.size>300){
   const now=Date.now();
-  for(const [k,v] of convMem)if(now-v.at>MEM_TTL||convMem.size>500)convMem.delete(k);
+  for(const [k,v] of convMem)if(now-v.at>MEM_TTL||convMem.size>300)convMem.delete(k);
  }
 }
-exports.clearHistory=(tgId,mode)=>{
- if(mode)convMem.delete(`${mode}:${tgId}`);
- else{convMem.delete(`admin:${tgId}`);convMem.delete(`customer:${tgId}`)}
-};
+exports.clearHistory=tgId=>{convMem.delete(String(tgId))};
 
 /* Pending confirmation store for admin mutations */
-const pendingMap=new Map(); // id -> {id,actorId,actions,summary,details,at}
+const pendingMap=new Map();
 const PEND_TTL=15*60*1000;
 function putPending(actorId,actions,summary,details){
  const now=Date.now();
@@ -145,7 +114,6 @@ async function callGemini({system,contents,tools}){
  return{parts,text,calls};
 }
 
-/* ==================== ADMIN TOOLS ==================== */
 const ADMIN_TOOLS=[
  {
   name:'search_products',
@@ -165,7 +133,7 @@ const ADMIN_TOOLS=[
  },
  {
   name:'get_stats',
-  description:"Savdo statistikasi, tushum, buyurtmalar soni, top kategoriyalar va eng ko'p sotilgan mahsulotlarni olish. from/to bo'sh bo'lsa oxirgi 7 kun.",
+  description:"Savdo statistikasi, tushum, buyurtmalar soni, top kategoriyalar va eng ko'p sotilgan mahsulotlarni olish. from/to bo'sh bo'lsa oxirgi davr.",
   parameters:{type:'OBJECT',properties:{
    from:{type:'STRING',description:'Boshlanish sanasi YYYY-MM-DD (Toshkent vaqti).'},
    to:{type:'STRING',description:'Tugash sanasi YYYY-MM-DD (Toshkent vaqti).'}
@@ -455,11 +423,11 @@ async function execAdminAction(user,a){
 }
 
 exports.confirmAction=async(user,actionId)=>{
- if(!isAdm(user))throw O.bad("Ruxsat yo'q");
+ if(!canAi(user))throw O.bad("AI ruxsati yo'q");
  const rec=pendingMap.get(String(actionId||''));
  if(!rec||rec.actorId!==String(user.tg_id))throw O.bad('Tasdiqlash soʻrovi topilmadi yoki muddati tugagan');
  if(Date.now()-rec.at>PEND_TTL){pendingMap.delete(rec.id);throw O.bad('Muddati tugagan, qaytadan soʻrang')}
- pendingMap.delete(rec.id); // consume immediately to prevent double-execution
+ pendingMap.delete(rec.id);
  const results=[];
  for(const a of rec.actions){
   results.push(await execAdminAction(user,a));
@@ -468,9 +436,9 @@ exports.confirmAction=async(user,actionId)=>{
 };
 
 async function chatAdmin(user,{text='',audioBase64='',audioMime=''}){
- if(!isAdm(user))throw O.bad("Faqat adminlar uchun");
- const qk=checkQuota('admin',user,150);
- if(!qk.ok)throw O.bad('Bugungi admin AI limiti tugadi.');
+ if(!canAi(user))throw O.bad("AI yordamchidan foydalanish uchun Super Admin ruxsati kerak");
+ const qk=checkQuota(user,200);
+ if(!qk.ok)throw O.bad('Bugungi AI limiti tugadi.');
  const now=tashkentNow();
  const system=`Sen TEGEN Market supermarketi admini uchun aqlli AI yordamchisan.
 Hozirgi vaqt (Toshkent): ${now.date} ${now.time}.
@@ -494,19 +462,18 @@ Qoidalar:
   userParts.push({text:cleanTxt});
  }else throw O.bad('Xabar yozing yoki ovozli xabar yuboring');
 
- const contents=[...getTurns('admin',user.tg_id),{role:'user',parts:userParts}];
+ const contents=[...getTurns(user.tg_id),{role:'user',parts:userParts}];
 
  for(let step=0;step<5;step++){
   const res=await callGemini({system,contents,tools:ADMIN_TOOLS});
   if(!res.calls.length){
    const reply=res.text||'Tayyor.';
-   pushTurn('admin',user.tg_id,cleanTxt||'[Ovozli xabar]',reply);
+   pushTurn(user.tg_id,cleanTxt||'[Ovozli xabar]',reply);
    return{reply,pending:null};
   }
   const writeCalls=res.calls.filter(c=>ADMIN_WRITE_TOOLS.has(c.name));
   const readCalls=res.calls.filter(c=>!ADMIN_WRITE_TOOLS.has(c.name));
 
-  // If there are write calls, validate them immediately
   if(writeCalls.length){
    const prepared=[],lines=[],errors=[];
    for(const c of writeCalls){
@@ -515,7 +482,6 @@ Qoidalar:
     else{prepared.push(pr.action);lines.push(pr.line)}
    }
    if(errors.length&&!prepared.length){
-    // Feed validation errors back to Gemini so it can self-correct or explain
     contents.push({role:'model',parts:res.parts});
     const respParts=res.calls.map(c=>{
      const er=errors.find(e=>e.name===c.name);
@@ -527,11 +493,10 @@ Qoidalar:
    const summary=lines.join('\n');
    const rec=putPending(user.tg_id,prepared,summary,lines);
    const reply=(res.text?res.text+'\n\n':'')+'Quyidagi amalni bajarishni tasdiqlaysizmi?';
-   pushTurn('admin',user.tg_id,cleanTxt||'[Ovozli xabar]',`${reply}\n${summary}`);
+   pushTurn(user.tg_id,cleanTxt||'[Ovozli xabar]',`${reply}\n${summary}`);
    return{reply,pending:{id:rec.id,summary:rec.summary,details:rec.details}};
   }
 
-  // Otherwise execute all read calls in parallel and continue loop
   contents.push({role:'model',parts:res.parts});
   const respParts=await Promise.all(readCalls.map(async c=>{
    try{
@@ -546,157 +511,3 @@ Qoidalar:
  return{reply:"So'rov juda murakkab bo'ldi, iltimos aniqroq yozing.",pending:null};
 }
 exports.chatAdmin=chatAdmin;
-
-/* ==================== CUSTOMER TOOLS ==================== */
-const CUSTOMER_TOOLS=[
- {
-  name:'search_shop_products',
-  description:"Do'kondagi mavjud mahsulotlarni qidirish. Bir martada bir nechta kalit so'z yuborish mumkin (masalan palov uchun: ['guruch','рис','sabzi','морков','piyoz','лук','yog','масло','go\\'sht','говядин']).",
-  parameters:{type:'OBJECT',properties:{
-   queries:{type:'ARRAY',items:{type:'STRING'},description:"Qidiruv so'zlari ro'yxati (o'zbekcha va ruscha qisqa ildizlar bilan, max 12 ta)."},
-   category:{type:'STRING',description:'Kategoriya nomi (ixtiyoriy).'},
-   saleOnly:{type:'BOOLEAN',description:'Faqat aksiyadagi mahsulotlar.'},
-   limit:{type:'INTEGER',description:'Jami max mahsulot (max 36).'}
-  }}
- },
- {
-  name:'list_shop_categories',
-  description:"Do'kondagi barcha bo'limlar (kategoriyalar) ro'yxatini ko'rish.",
-  parameters:{type:'OBJECT',properties:{}}
- },
- {
-  name:'get_my_orders',
-  description:"Mijozning o'zining oxirgi buyurtmalari holatini ko'rish.",
-  parameters:{type:'OBJECT',properties:{}}
- },
- {
-  name:'suggest_cart',
-  description:"Mijozga savatga qo'shish uchun aniq do'kon mahsulotlarini (search_shop_products dan olingan haqiqiy product_id lar bilan) tavsiya qilish.",
-  parameters:{type:'OBJECT',properties:{
-   items:{type:'ARRAY',items:{type:'OBJECT',properties:{
-    product_id:{type:'INTEGER',description:'Haqiqiy mahsulot ID.'},
-    qty:{type:'INTEGER',description:'Dona mahsulot uchun soni (1-20).'},
-    grams:{type:'INTEGER',description:"Vaznli (unit='weight') mahsulot uchun gramm (masalan 500, 1000)."},
-    note:{type:'STRING',description:'Qisqa izoh (masalan "4 kishiga 1 kg").'}
-   },required:['product_id']}}
-  },required:['items']}
- }
-];
-
-async function runCustomerTool(user,wh,name,args={},recBag){
- const stockCond=wh?' and (stock is null or stock>0)':'';
- if(name==='search_shop_products'){
-  const lim=Math.max(5,Math.min(36,Math.round(+args.limit)||28));
-  const qs=(Array.isArray(args.queries)?args.queries:[]).map(x=>String(x||'').trim().slice(0,40)).filter(Boolean).slice(0,12);
-  const found=new Map();
-  if(qs.length){
-   const per=Math.max(3,Math.min(6,Math.ceil(lim/qs.length)+1));
-   const resList=await Promise.all(qs.map(term=>{
-    const w=[`active${stockCond}`],p=['%'+term+'%'];
-    w.push(`(name ilike $1 or coalesce(name_uz,'') ilike $1)`);
-    if(args.category){p.push(String(args.category).trim().slice(0,80));w.push(`category=$${p.length}`)}
-    if(args.saleOnly)w.push(SALE_SQL);
-    return q(`select id,name,name_uz,category,unit,price,sale_price,sale_until,min_grams,weight_g from products where ${w.join(' and ')} order by pos asc nulls last,coalesce(sales_count,0) desc,name limit ${per}`,p);
-   }));
-   for(const r of resList)for(const row of r.rows)if(!found.has(row.id)&&found.size<lim)found.set(row.id,row);
-  }else{
-   const w=[`active${stockCond}`],p=[];
-   if(args.category){
-    p.push(String(args.category).trim().slice(0,80));const k=p.length;
-    w.push(`(category=$${k} or category in (select name from categories where parent=$${k}))`);
-   }
-   if(args.saleOnly)w.push(SALE_SQL);
-   const r=await q(`select id,name,name_uz,category,unit,price,sale_price,sale_until,min_grams,weight_g from products where ${w.join(' and ')} order by pos asc nulls last,coalesce(sales_count,0) desc,name limit ${lim}`,p);
-   for(const row of r.rows)found.set(row.id,row);
-  }
-  return{count:found.size,products:[...found.values()]};
- }
- if(name==='list_shop_categories'){
-  const rows=(await q('select name,name_ru,parent from categories order by case when coalesce(sort,0)>0 then sort else 999999 end,id')).rows;
-  return{categories:rows};
- }
- if(name==='get_my_orders'){
-  const rows=(await q(`select o.id,o.status,o.total,o.code,o.type,o.created_at,coalesce((select string_agg(i.name||' ×'||i.qty::text,', ') from order_items i where i.order_id=o.id),'') items from orders o where o.user_id=$1 order by o.id desc limit 5`,[user.tg_id])).rows;
-  return{orders:rows.map(o=>({...o,status_uz:ST_UZ[o.status]||o.status}))};
- }
- if(name==='suggest_cart'){
-  const list=(Array.isArray(args.items)?args.items:[]).slice(0,15);
-  const ids=[...new Set(list.map(x=>Math.round(+x.product_id)).filter(x=>x>0))];
-  if(!ids.length)return{ok:false,added:0};
-  const rows=(await q(`select ${PSEL} from products where active${stockCond} and id=any($1::int[])`,[ids])).rows;
-  const byId=new Map(rows.map(r=>[r.id,r]));
-  recBag.length=0;
-  for(const it of list){
-   const p=byId.get(Math.round(+it.product_id));
-   if(!p||recBag.some(x=>x.product.id===p.id))continue;
-   if(p.unit==='weight'){
-    const minG=p.min_grams||250;
-    const rawG=Math.round(+it.grams)||Math.round((+it.qty||0.5)*1000)||500;
-    const grams=Math.max(minG,Math.min(10000,Math.round(rawG/50)*50));
-    recBag.push({product:p,grams,note:String(it.note||'').slice(0,80)});
-   }else{
-    const qty=Math.max(1,Math.min(20,Math.round(+it.qty)||1));
-    recBag.push({product:p,qty,note:String(it.note||'').slice(0,80)});
-   }
-  }
-  return{ok:true,attached:recBag.length};
- }
- return{error:"Noma'lum vosita"};
-}
-
-async function chatCustomer(user,{text='',audioBase64='',audioMime=''}){
- const cfg=await getConfig();
- if(!cfg.customerEnabled&&!isAdm(user))throw O.bad("AI maslahatchi hozircha o'chirilgan.");
- const qk=checkQuota('customer',user,cfg.customerDailyLimit);
- if(!qk.ok)throw O.bad(`Bugungi AI limiti tugadi (${cfg.customerDailyLimit} ta savol/kun). Ertaga yana foydalanishingiz mumkin.`);
- const wh=!!(await getSetting('warehouse').catch(()=>({}))).enabled;
- const now=tashkentNow();
- const system=`Sen TEGEN Market supermarketining samimiy AI xarid maslahatchisisan.
-Hozirgi vaqt (Toshkent): ${now.date} ${now.time}.
-Mijoz ismi: ${user.name||'Mijoz'}, tili: ${user.lang==='ru'?'Ruscha':'Oʻzbekcha'}.
-Qoidalar:
-1. Mijoz qaysi tilda yozsa yoki gapirsa (O'zbekcha yoki Ruscha), o'sha tilda qisqa, foydali va do'stona javob ber.
-2. Mijoz ovqat retsepti (masalan "4 kishiga palov", "salat", "shorva", "nonushta") yoki mahsulot so'rasa:
-   - Avval search_shop_products bilan barcha kerakli masalliqlarni BITTA chaqiruvda qidir!
-   - MUHIM: Do'kondagi mahsulotlar ko'pincha ruscha (kirill) yoki o'zbekcha (lotin) yozilgan. Har bir masalliq uchun ikkala tilda qisqa ildiz yubor, masalan: ['guruch','рис','sabzi','морков','piyoz','лук','yog','масло','go\\'sht','говядин'].
-   - Topilgan eng mos REAL mahsulotlarni suggest_cart vositasi orqali savatga tavsiya qil (hech qachon yo'q ID o'ylab topma!).
-   - Agar biror masalliq do'konda topilmasa, uni halol aytib o't ("Do'konda hozir X topilmadi").
-3. Mijoz aksiya so'rasa search_shop_products({saleOnly:true}) ni ishlat va eng yaxshilarini suggest_cart bilan ko'rsat.
-4. Mijoz o'z buyurtmasini so'rasa get_my_orders ni ishlat.
-5. Hech qachon mahsulot narxini o'ylab topma, faqat bazadan kelgan narxni ayt.`;
-
- const userParts=[];
- const cleanTxt=String(text||'').trim().slice(0,800);
- if(audioBase64){
-  if(audioBase64.length>2800000)throw O.bad('Ovozli xabar juda uzun');
-  userParts.push({inlineData:{mimeType:audioMime||'audio/ogg',data:audioBase64}});
-  userParts.push({text:cleanTxt||"Mijozning ovozli savolini tingla va yordam ber."});
- }else if(cleanTxt){
-  userParts.push({text:cleanTxt});
- }else throw O.bad('Savolingizni yozing');
-
- const contents=[...getTurns('customer',user.tg_id),{role:'user',parts:userParts}];
- const recBag=[];
-
- for(let step=0;step<4;step++){
-  const res=await callGemini({system,contents,tools:CUSTOMER_TOOLS});
-  if(!res.calls.length){
-   const reply=res.text||'Marhamat!';
-   pushTurn('customer',user.tg_id,cleanTxt||'[Ovozli xabar]',reply);
-   return{reply,recommendations:recBag,remaining:qk.remaining};
-  }
-  contents.push({role:'model',parts:res.parts});
-  const respParts=await Promise.all(res.calls.map(async c=>{
-   try{
-    const out=await runCustomerTool(user,wh,c.name,c.args||{},recBag);
-    return{functionResponse:{name:c.name,response:out}};
-   }catch(e){
-    return{functionResponse:{name:c.name,response:{error:e.message||'Xato'}}};
-   }
-  }));
-  contents.push({role:'user',parts:respParts});
- }
- const fallback=recBag.length?'Mana sizga mos mahsulotlar:':"Kechirasiz, qayta urinib ko'ring.";
- return{reply:fallback,recommendations:recBag,remaining:qk.remaining};
-}
-exports.chatCustomer=chatCustomer;

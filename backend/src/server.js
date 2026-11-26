@@ -56,16 +56,15 @@ const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and
 let pubCache=null,pubExp=0,pubPromise=null;
 const bustPub=()=>{pubCache=null;pubExp=0};
 AI.init({runBroadcast,bustPub});
-async function getPub(){
+ async function getPub(){
  if(pubCache&&pubExp>Date.now())return pubCache;
  if(pubPromise)return pubPromise;
  pubPromise=(async()=>{
-  const [whR,dlR,anR,suR,aiR,bnR,bdR,vdR,ctR,scR,fmR]=await Promise.all([
+  const [whR,dlR,anR,suR,bnR,bdR,vdR,ctR,scR,fmR]=await Promise.all([
    getSetting('warehouse'),
    getSetting('delivery'),
    q("select value from settings where key='animation'"),
    q("select value from settings where key='support'"),
-   AI.getConfig(),
    q('select id,image,title,subtitle,link from banners where active order by sort,id'),
    q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`),
    q('select id,title,yt_id from videos where active order by id desc'),
@@ -78,7 +77,6 @@ async function getPub(){
    d:dlR,
    anim:anR.rows[0]?.value||{preset:'none'},
    sup:suR.rows[0]?.value||{username:'',phone:''},
-   ai:aiR,
    banners:bnR.rows,
    bundles:bdR.rows,
    videos:vdR.rows,
@@ -134,6 +132,7 @@ const auth=async(req,res,next)=>{try{
 }catch{res.status(401).json({error:'Avtorizatsiya xatosi'})}};
 const need=(...r)=>(req,res,next)=>r.includes(req.me.role)?next():res.status(403).json({error:"Ruxsat yo'q"});
 const needBroadcast=(req,res,next)=>(req.me.role==='superadmin'||(req.me.role==='admin'&&req.me.can_broadcast))?next():res.status(403).json({error:"Xabar yuborish ruxsati yo'q"});
+const needAi=(req,res,next)=>AI.canAi(req.me)?next():res.status(403).json({error:"AI yordamchi ruxsati yo'q"});
 const STAFF=['operator','admin','superadmin'],ADM=['admin','superadmin'];
 
 app.use('/api',S.ipShield,auth,S.ddosGuard);
@@ -148,21 +147,21 @@ app.get('/api/init',wrap(async(req,res)=>{
   isAdm?q('select count(*)::int c from products where needs_setup'):null,
   isAdm?q('select * from pending_changes order by id'):null,
   isAdm?q("select value from settings where key='last_sync'"):null,
-  m.role==='superadmin'?q("select tg_id,name,role,role_title,department,coalesce(can_broadcast,false) can_broadcast from users where role<>'user'"):null,
+  m.role==='superadmin'?q("select tg_id,name,role,role_title,department,coalesce(can_broadcast,false) can_broadcast,coalesce(can_ai,false) can_ai from users where role<>'user'"):null,
   m.role==='superadmin'?q("select value from settings where key='custom_roles'"):null
  ]);
  const d=pub.d;
  res.json({
   role:m.role,workerDepartment:m.department,
-  user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',roleTitle:m.role_title||null,canBroadcast:m.role==='superadmin'||(m.role==='admin'&&!!m.can_broadcast),cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},
+  user:{telegramId:m.tg_id,name:m.name,phone:m.phone,lang:m.lang||'uz',roleTitle:m.role_title||null,canBroadcast:m.role==='superadmin'||(m.role==='admin'&&!!m.can_broadcast),canAi:AI.canAi(m),cardNumber:m.card_number||null,cardStatus:m.card_status||null,cardFullName:m.card_full_name||null,cardPhone:m.card_phone||null,cardAddress:m.card_address||null},
   warehouseEnabled:pub.wh,saleCount:pub.saleCount,
   pendingCardsCount:pcR?pcR.rows[0].c:0,
   blockedCount:bcR?bcR.rows[0].c:0,
   setupCount:suR?suR.rows[0].c:0,
   lastSync:lsR?lsR.rows[0]?.value||null:null,
   syncKeySet:isAdm?Boolean(String(process.env.SYNC_API_KEY||'').trim()):false,
-  ai:{ready:AI.isReady(),customerEnabled:pub.ai.customerEnabled,customerDailyLimit:pub.ai.customerDailyLimit,...(isAdm?{model:AI.modelName(),today:AI.getTodayStats()}:{})},
-  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup,ai:pub.ai},
+  ai:isAdm?{ready:AI.isReady(),canAi:AI.canAi(m),model:AI.modelName(),today:AI.getTodayStats()}:null,
+  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
   cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,orders:ordR.rows,
   pendingProducts:ppR?ppR.rows:[],
   roles:rlR?rlR.rows:null,
@@ -246,28 +245,25 @@ app.put('/api/settings/support',need(...ADM),wrap(async(req,res)=>{const raw=Str
 app.put('/api/settings/warehouse',need('superadmin'),wrap(async(req,res)=>{const v={enabled:!!req.body.enabled};await setSetting('warehouse',v);bustPub();
  await audit(req.me.tg_id,'settings.warehouse','settings',v);res.json(v)}));
 app.put('/api/settings/animation',need('superadmin'),wrap(async(req,res)=>{const ok=['none','newyear','navruz','ramazon','autumn','confetti'];const preset=ok.includes(req.body.preset)?req.body.preset:'none';const v={preset};await setSetting('animation',v);bustPub();await audit(req.me.tg_id,'settings.animation','settings',v);res.json(v)}));
-app.put('/api/settings/ai',need(...ADM),wrap(async(req,res)=>res.json(await AI.saveConfig(req.me.tg_id,req.body||{}))));
-app.post('/api/ai/chat',S.actionLimit('ai',15,60000),wrap(async(req,res)=>{
+app.post('/api/ai/chat',needAi,S.actionLimit('ai',15,60000),wrap(async(req,res)=>{
  const b=req.body||{};
- const adminMode=b.mode==='admin'&&ADM.includes(req.me.role);
- const payload={text:b.text||'',audioBase64:b.audioBase64||'',audioMime:b.audioMime||''};
- const out=adminMode?await AI.chatAdmin(req.me,payload):await AI.chatCustomer(req.me,payload);
- res.json({mode:adminMode?'admin':'customer',...out});
+ const out=await AI.chatAdmin(req.me,{text:b.text||'',audioBase64:b.audioBase64||'',audioMime:b.audioMime||''});
+ res.json({mode:'admin',...out});
 }));
-app.post('/api/ai/confirm',need(...ADM),wrap(async(req,res)=>res.json(await AI.confirmAction(req.me,req.body?.actionId))));
-app.post('/api/ai/cancel',need(...ADM),wrap(async(req,res)=>res.json(AI.cancelAction(req.me,req.body?.actionId))));
-app.post('/api/ai/reset',wrap(async(req,res)=>{AI.clearHistory(req.me.tg_id,req.body?.mode);res.json({success:true})}));
+app.post('/api/ai/confirm',needAi,wrap(async(req,res)=>res.json(await AI.confirmAction(req.me,req.body?.actionId))));
+app.post('/api/ai/cancel',needAi,wrap(async(req,res)=>res.json(AI.cancelAction(req.me,req.body?.actionId))));
+app.post('/api/ai/reset',needAi,wrap(async(req,res)=>{AI.clearHistory(req.me.tg_id);res.json({success:true})}));
 app.put('/api/products/:id/stock',need('superadmin'),wrap(async(req,res)=>{if(!(await getSetting('warehouse')).enabled)return res.status(400).json({error:'Ombor tizimi yoqilmagan'});
  await q('update products set stock=$1 where id=$2',[req.body.stock==null?null:Number(req.body.stock),+req.params.id]);await audit(req.me.tg_id,'product.stock','product:'+req.params.id,req.body);res.json({success:true})}));
-app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,roleTitle,name,department,canBroadcast}=req.body;
+app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,roleTitle,name,department,canBroadcast,canAi}=req.body;
  if(!['user','worker','operator','admin'].includes(role)||!Number(targetId))return res.status(400).json({error:"Noto'g'ri"});
  const ex=(await q('select role from users where tg_id=$1',[targetId])).rows[0];
  if(ex?.role==='superadmin')return res.status(403).json({error:"Super Admin rolini o'zgartirib bo'lmaydi"});
- const cb=role==='admin'?!!canBroadcast:false;
+ const cb=role==='admin'?!!canBroadcast:false,ca=role==='admin'?!!canAi:false;
  const rt=role==='user'?null:(String(roleTitle||'').trim().slice(0,40)||null);
- await q("insert into users(tg_id,name,role,role_title,department,can_broadcast) values($1,$2,$3,$4,$5,$6) on conflict(tg_id) do update set role=$3,role_title=$4,department=$5,can_broadcast=$6,name=coalesce(nullif($2,''),users.name)",[targetId,name||'',role,rt,role==='worker'?department:null,cb]);
+ await q("insert into users(tg_id,name,role,role_title,department,can_broadcast,can_ai) values($1,$2,$3,$4,$5,$6,$7) on conflict(tg_id) do update set role=$3,role_title=$4,department=$5,can_broadcast=$6,can_ai=$7,name=coalesce(nullif($2,''),users.name)",[targetId,name||'',role,rt,role==='worker'?department:null,cb,ca]);
  bustUser(targetId);
- await audit(req.me.tg_id,'role.set','user:'+targetId,{role,roleTitle:rt,department,canBroadcast:cb});res.json({success:true})}));
+ await audit(req.me.tg_id,'role.set','user:'+targetId,{role,roleTitle:rt,department,canBroadcast:cb,canAi:ca});res.json({success:true})}));
 app.post('/api/custom-roles',need('superadmin'),wrap(async(req,res)=>{
  const name=String(req.body.name||'').trim().slice(0,40);
  const base=['worker','operator','admin'].includes(req.body.base)?req.body.base:'operator';
@@ -295,6 +291,10 @@ app.put('/api/roles/:tgId/broadcast',need('superadmin'),wrap(async(req,res)=>{co
  await q("update users set can_broadcast=$1 where tg_id=$2 and role='admin'",[cb,tid]);
  bustUser(tid);
  await audit(req.me.tg_id,'role.broadcast','user:'+tid,{canBroadcast:cb});res.json({success:true})}));
+app.put('/api/roles/:tgId/ai',need('superadmin'),wrap(async(req,res)=>{const tid=req.params.tgId,ca=!!req.body.canAi;
+ await q("update users set can_ai=$1 where tg_id=$2 and role='admin'",[ca,tid]);
+ bustUser(tid);
+ await audit(req.me.tg_id,'role.ai','user:'+tid,{canAi:ca});res.json({success:true})}));
 app.get('/api/broadcast',needBroadcast,wrap(async(req,res)=>{
  const counts=(await q("select count(*)::int all_c,count(*) filter(where coalesce(lang,'uz')<>'ru')::int uz_c,count(*) filter(where lang='ru')::int ru_c from users")).rows[0];
  const history=(await q('select * from broadcasts order by id desc limit 30')).rows;

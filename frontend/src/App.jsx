@@ -88,14 +88,8 @@ const RU={
   "Yangi rol qo'shish":"Добавить новую роль","Yangi katalog qo'shish":"Добавить новую категорию",
   "Rolni tanlang":"Выберите роль","Katalogni tanlang":"Выберите категорию",
   "Boshqa bo'limlar":"Другие разделы",
-  "AI Maslahatchi":"AI Консультант","AI Yordamchi":"AI Помощник",
-  "Hammasini savatga qo'shish":"Добавить всё в корзину",
-  "Savolingizni yozing...":"Напишите ваш вопрос...",
+  "AI Yordamchi":"AI Помощник",
   "Buyruq yozing yoki ovoz yuboring...":"Напишите команду или отправьте голос...",
-  "4 kishiga palov uchun nima kerak?":"Что нужно для плова на 4 человек?",
-  "Tez salat uchun mahsulotlar":"Продукты для быстрого салата",
-  "Bugungi aksiyalar qaysilar?":"Какие сегодня акции?",
-  "Buyurtmam qayerda qoldi?":"Где мой заказ?",
   "Suhbat tozalandi":"Чат очищен"
 }
 
@@ -2483,9 +2477,8 @@ function AdminBroadcast({act,say}){
 
 function Settings({d,act,onReload,onPreviewAnim}){
   const {t}=useLang()
-  const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',roleKey:'worker',role:'worker',roleTitle:'',name:'',department:d.categories[0],canBroadcast:false})
+  const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',roleKey:'worker',role:'worker',roleTitle:'',name:'',department:d.categories[0],canBroadcast:false,canAi:false})
   const [sup,setSup]=useState(()=>({username:d.settings.support?.username||'',phone:d.settings.support?.phone||''}))
-  const [aiCfg,setAiCfg]=useState(()=>({customerEnabled:d.settings.ai?.customerEnabled!==false,customerDailyLimit:d.settings.ai?.customerDailyLimit||15}))
   const [preset,setPreset]=useState(()=>d.settings.animation?.preset||'none')
   const cleanUser=String(sup.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim()
   return <><div className="card"><h2>{t("🚚 Yetkazib berish")}</h2>
@@ -2503,19 +2496,17 @@ function Settings({d,act,onReload,onPreviewAnim}){
       <label className="m">{t("Telefon raqam (ixtiyoriy)")}<input className="in" type="tel" placeholder="+998 90 123 45 67" value={sup.phone} onChange={e=>setSup({...sup,phone:e.target.value})}/></label>
       <button className="btn s" onClick={()=>act(async()=>{const res=await api('/api/settings/support','PUT',sup);setSup(res)},'Saqlandi')}>{t("Saqlash")}</button>
     </div>
-    <div className="card">
-      <h2>🤖 Sun'iy intellekt (AI)</h2>
-      <div className="row" style={{margin:'4px 0 8px'}}>
-        <span className="m">Gemini holati</span>
-        <span className={'badge '+(d.ai?.ready?'green':'amber')}>{d.ai?.ready?`✅ Ulangan (${d.ai.model||'gemini'})`:'⚠️ GEMINI_API_KEY yoʻq'}</span>
-      </div>
-      {d.ai?.today&&<div className="m" style={{marginBottom:8}}>Bugun: Admin <b>{d.ai.today.adminRequests}</b> · Mijozlar <b>{d.ai.today.customerRequests}</b> so'rov</div>}
-      {!d.ai?.ready&&<div className="m" style={{marginBottom:8,color:'#B45309'}}>Railway → Variables bo'limiga <b>GEMINI_API_KEY</b> qo'shing, shunda AI botda va ilovada ishga tushadi.</div>}
-      <label className="row"><span>Mijozlar uchun AI maslahatchi</span><input type="checkbox" checked={!!aiCfg.customerEnabled} onChange={e=>setAiCfg({...aiCfg,customerEnabled:e.target.checked})}/></label>
-      <label className="m">Har bir mijozga kunlik limit (savol/kun)<input className="in" type="text" inputMode="numeric" value={aiCfg.customerDailyLimit||''} onChange={e=>setAiCfg({...aiCfg,customerDailyLimit:digits(e.target.value)})}/></label>
-      <button className="btn s" onClick={()=>act(async()=>{const res=await api('/api/settings/ai','PUT',aiCfg);setAiCfg(res)},'Saqlandi')}>{t("Saqlash")}</button>
-    </div>
     {d.role==='superadmin'&&<>
+      <div className="card">
+        <h2>🤖 Sun'iy intellekt (AI)</h2>
+        <div className="row" style={{margin:'4px 0 8px'}}>
+          <span className="m">Gemini holati</span>
+          <span className={'badge '+(d.ai?.ready?'green':'amber')}>{d.ai?.ready?`✅ Ulangan (${d.ai.model||'gemini'})`:'⚠️ GEMINI_API_KEY yoʻq'}</span>
+        </div>
+        {d.ai?.today&&<div className="m" style={{marginBottom:6}}>Bugungi so'rovlar: <b>{d.ai.today.requests||0}</b> ta</div>}
+        {!d.ai?.ready?<div className="m" style={{color:'#B45309'}}>Railway → Variables bo'limiga <b>GEMINI_API_KEY</b> qo'shing, shunda AI botda va ilovada ishga tushadi.</div>
+          :<div className="m">Super Admin va pastdagi «👥 Rollar» bo'limida 🤖 ruxsati berilgan adminlar ishlata oladi.</div>}
+      </div>
       <div className="card">
         <h2>✨ {t("Bayram animatsiyasi")}</h2>
         <div className="m">Mini App orqa fonida doimiy ishlaydigan mavsumiy animatsiya (faqat Super Admin).</div>
@@ -2528,10 +2519,11 @@ function Settings({d,act,onReload,onPreviewAnim}){
       </div>
       <div className="card"><h2>📦 Ombor tizimi</h2><label className="row"><span>Yoqilgan (faqat Super Admin)</span><input type="checkbox" checked={d.warehouseEnabled} onChange={e=>act(()=>api('/api/settings/warehouse','PUT',{enabled:e.target.checked}),'Saqlandi')}/></label></div>
       <div className="card"><h2>👥 Rollar</h2>
-        <div className="m" style={{marginBottom:8}}>Super Admin va «📣 Xabar» yoqilgan adminlar botda barcha foydalanuvchilarga yangilik/rasm/video yubora oladi.</div>
+        <div className="m" style={{marginBottom:8}}>Super Admin va ruxsat berilgan adminlar: 📣 Yangilik yuborish · 🤖 AI yordamchi.</div>
         {(d.roles||[]).map(x=><div className="row" key={x.tg_id}>
-          <span className="row-txt"><b>{x.name||x.tg_id}</b> <span className="m">{x.role_title?`${x.role_title} (${ROLE_BASE_LBL[x.role]||x.role})`:(ROLE_BASE_LBL[x.role]||x.role)}{x.department?' · '+x.department:''}{x.role==='superadmin'||x.can_broadcast?' · 📣':''}</span></span>
+          <span className="row-txt"><b>{x.name||x.tg_id}</b> <span className="m">{x.role_title?`${x.role_title} (${ROLE_BASE_LBL[x.role]||x.role})`:(ROLE_BASE_LBL[x.role]||x.role)}{x.department?' · '+x.department:''}{x.role==='superadmin'||x.can_broadcast?' · 📣':''}{x.role==='superadmin'||x.can_ai?' · 🤖':''}</span></span>
           {x.role!=='superadmin'&&<span className="row-acts">
+            {x.role==='admin'&&<button type="button" className={'btn s '+(x.can_ai?'k':'g')} title="AI yordamchi ruxsati" onClick={()=>act(()=>api(`/api/roles/${x.tg_id}/ai`,'PUT',{canAi:!x.can_ai}),x.can_ai?'AI ruxsati olindi':'AI ruxsati berildi ✅')}>🤖</button>}
             {x.role==='admin'&&<button type="button" className={'btn s '+(x.can_broadcast?'k':'g')} title="Xabar yuborish ruxsati" onClick={()=>act(()=>api(`/api/roles/${x.tg_id}/broadcast`,'PUT',{canBroadcast:!x.can_broadcast}),x.can_broadcast?'Xabar ruxsati olindi':'Xabar ruxsati berildi ✅')}>📣</button>}
             <button className="btn s g" onClick={()=>act(()=>api('/api/roles','POST',{targetId:x.tg_id,role:'user'}))}>Olib tashlash</button>
           </span>}
@@ -2541,8 +2533,11 @@ function Settings({d,act,onReload,onPreviewAnim}){
           <RolePicker style={{flex:1}} value={u.roleKey} customRoles={d.customRoles} onReload={onReload} onSelect={opt=>{if(opt)setU({...u,roleKey:opt.value,role:opt.base,roleTitle:opt.roleTitle||'',canBroadcast:opt.base==='admin'?!!opt.canBroadcast:false})}}/>
           {u.role==='worker'&&<CatPicker style={{flex:1}} value={u.department} cats={d.cats} canCreate onReload={onReload} title="Bo'limni tanlang" onChange={v=>setU({...u,department:v})}/>}
         </div>
-        {u.role==='admin'&&<label className="row" style={{marginBottom:8}}><span>📣 Xabar yuborish ruxsati (Yangiliklar)</span><input type="checkbox" checked={!!u.canBroadcast} onChange={e=>setU({...u,canBroadcast:e.target.checked})}/></label>}
-        <button className="btn" onClick={()=>act(async()=>{await api('/api/roles','POST',{targetId:u.targetId,role:u.role,roleTitle:u.roleTitle,name:u.name,department:u.department,canBroadcast:u.canBroadcast});setU({targetId:'',roleKey:'worker',role:'worker',roleTitle:'',name:'',department:d.categories[0],canBroadcast:false})},'Saqlandi')}>Qo'shish</button></div>
+        {u.role==='admin'&&<>
+          <label className="row" style={{marginBottom:6}}><span>📣 Xabar yuborish ruxsati (Yangiliklar)</span><input type="checkbox" checked={!!u.canBroadcast} onChange={e=>setU({...u,canBroadcast:e.target.checked})}/></label>
+          <label className="row" style={{marginBottom:8}}><span>🤖 AI yordamchi ruxsati</span><input type="checkbox" checked={!!u.canAi} onChange={e=>setU({...u,canAi:e.target.checked})}/></label>
+        </>}
+        <button className="btn" onClick={()=>act(async()=>{await api('/api/roles','POST',{targetId:u.targetId,role:u.role,roleTitle:u.roleTitle,name:u.name,department:u.department,canBroadcast:u.canBroadcast,canAi:u.canAi});setU({targetId:'',roleKey:'worker',role:'worker',roleTitle:'',name:'',department:d.categories[0],canBroadcast:false,canAi:false})},'Saqlandi')}>Qo'shish</button></div>
     </>}</>
 }
 
@@ -2603,7 +2598,7 @@ function AdminSecurity({act,say}){
   </>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','settings.ai':'🤖 AI sozlamasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','role.ai':'🤖 AI yordamchi ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
 const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category|ai)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
@@ -2611,7 +2606,7 @@ function Audit(){
   const [a,setA]=useState([]),[g,setG]=useState('all'),[per,setPer]=useState('7'),[from,setFrom]=useState(iso(7)),[to,setTo]=useState(iso(0)),[ft,setFt]=useState(fmt(iso(7))),[tt,setTt]=useState(fmt(iso(0)))
   useEffect(()=>{api(`/api/audit?from=${from}&to=${to}`).then(setA).catch(()=>{})},[from,to])
   const G=AG.find(x=>x[0]===g),list=G[2]?a.filter(x=>G[2].test(x.action)):a,col=x=>(AG.find(z=>z[2]&&z[2].test(x.action))||AG[0])[3]
-  const adet=x=>{const z=x.detail||{};if(z.updated!=null&&z.created!=null)return `🔄 ${z.updated} yangilandi · 🆕 ${z.created} yangi`;if(z.reason)return z.reason+(z.ip?' · '+z.ip:'');if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return (z.roleTitle?`${z.roleTitle} (${z.role})`:z.role)+(z.department?' · '+z.department:'');if(z.name&&z.base)return `${z.name} (${z.base})`;if(z.n)return z.n;return ''}
+  const adet=x=>{const z=x.detail||{};if(z.updated!=null&&z.created!=null)return `🔄 ${z.updated} yangilandi · 🆕 ${z.created} yangi`;if(z.reason)return z.reason+(z.ip?' · '+z.ip:'');if(z.card)return '💳 '+z.card;if(z.kind&&z.total!=null)return `📣 ${z.kind} (${z.total} ta)`;if(z.canBroadcast!=null)return z.canBroadcast?'📣 Yoqildi':"📣 O'chirildi";if(z.canAi!=null)return z.canAi?'🤖 Yoqildi':"🤖 O'chirildi";if(z.username)return '@'+z.username;if(z.preset)return z.preset;if(z.active!=null)return z.active?'Yoqildi':'Faolsizlantirildi';if(z.total!=null)return so(z.total);if(z.title)return z.title;if(z.role)return (z.roleTitle?`${z.roleTitle} (${z.role})`:z.role)+(z.department?' · '+z.department:'');if(z.name&&z.base)return `${z.name} (${z.base})`;if(z.n)return z.n;return ''}
   return <>
     <DateRangeBar per={per} setPer={setPer} from={from} setFrom={setFrom} to={to} setTo={setTo} ft={ft} setFt={setFt} tt={tt} setTt={setTt}/>
     <div className="chips">{AG.map(([k,l])=><button key={k} className={'chip'+(g===k?' on':'')} onClick={()=>setG(k)}>{t(l)}</button>)}</div>
@@ -2631,14 +2626,12 @@ function Admin({d,act,say,onReload,onPreviewAnim}){
     {tb==='d'&&<Dash onNav={navTo}/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say} initFilter={navOpts.orderFilter}/>}{tb==='p'&&<Products d={d} act={act} say={say} onReload={onReload} initState={navOpts.prodState} initCat={navOpts.prodCat}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act} onReload={onReload}/>}{tb==='s'&&<Settings d={d} act={act} onReload={onReload} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
-function AiSheet({d,isAdm,mode,setMode,msgsMap,setMsgsMap,cart,setCart,onReload,onGoCart,say,close}){
-  const {t,so,pn}=useLang()
+function AiSheet({d,msgs,setMsgs,onReload,say,close}){
+  const {t}=useLang()
   const [inp,setInp]=useState(''),[busy,setBusy]=useState(false),[rec,setRec]=useState(false),[recSec,setRecSec]=useState(0)
   const listRef=useRef(null),mrRef=useRef(null),timerRef=useRef(null)
-  const msgs=msgsMap[mode]||[]
-  const setMsgs=fn=>setMsgsMap(prev=>({...prev,[mode]:typeof fn==='function'?fn(prev[mode]||[]):fn}))
 
-  useEffect(()=>{if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight},[msgs.length,busy,mode])
+  useEffect(()=>{if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight},[msgs.length,busy])
   useEffect(()=>()=>{
     clearInterval(timerRef.current)
     try{mrRef.current?.stream?.getTracks().forEach(tr=>tr.stop())}catch{}
@@ -2653,11 +2646,10 @@ function AiSheet({d,isAdm,mode,setMode,msgsMap,setMsgsMap,cart,setCart,onReload,
     setInp('')
     setBusy(true)
     try{
-      const r=await api('/api/ai/chat','POST',{mode,...payload})
+      const r=await api('/api/ai/chat','POST',payload)
       setMsgs(prev=>[...prev,{
         id:uid+1,role:'ai',text:r.reply,
-        pending:r.pending?{...r.pending,state:'waiting'}:null,
-        recommendations:r.recommendations||[]
+        pending:r.pending?{...r.pending,state:'waiting'}:null
       }])
     }catch(e){
       setMsgs(prev=>[...prev,{id:uid+1,role:'err',text:e.message||'Xato'}])
@@ -2680,24 +2672,6 @@ function AiSheet({d,isAdm,mode,setMode,msgsMap,setMsgsMap,cart,setCart,onReload,
       setMsgs(prev=>prev.map(m=>m.id===msgId&&m.pending?{...m,pending:{...m.pending,state:'error',result:e.message}}:m))
       say(e.message||'Xato')
     }
-  }
-
-  const addRecItem=it=>{
-    const p=it.product,k=keyOf(p)
-    const val=p.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1}
-    setCart(c=>({...c,[k]:{p,...val}}))
-    say(t("Savatga qo'shildi ✅"))
-  }
-  const addAllRecs=recs=>{
-    setCart(c=>{
-      const next={...c}
-      for(const it of recs){
-        const p=it.product,k=keyOf(p)
-        next[k]={p,...(p.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1})}
-      }
-      return next
-    })
-    say(t("Savatga qo'shildi ✅"))
   }
 
   const toggleVoice=async()=>{
@@ -2742,37 +2716,30 @@ function AiSheet({d,isAdm,mode,setMode,msgsMap,setMsgsMap,cart,setCart,onReload,
   }
 
   const resetChat=async()=>{
-    await api('/api/ai/reset','POST',{mode}).catch(()=>{})
+    await api('/api/ai/reset','POST',{}).catch(()=>{})
     setMsgs([])
     say(t("Suhbat tozalandi"))
   }
 
-  const quickChips=mode==='admin'
-    ?['Bugungi savdo va top mahsulotlar?','Oxirgi buyurtmalarni koʻrsat','Aksiyadagi mahsulotlar qaysilar?','Olmani Meva katalogida 3-oʻringa qoʻy']
-    :[t("4 kishiga palov uchun nima kerak?"),t("Tez salat uchun mahsulotlar"),t("Bugungi aksiyalar qaysilar?"),t("Buyurtmam qayerda qoldi?")]
+  const quickChips=['Bugungi savdo va top mahsulotlar?','Oxirgi buyurtmalarni koʻrsat','Aksiyadagi mahsulotlar qaysilar?','Olmani Meva katalogida 3-oʻringa qoʻy']
 
   return <div className="sheet ai-sheet" onClick={close}>
     <div className="ai-box" onClick={e=>e.stopPropagation()}>
       <div className="sheet-handle"/>
       <div className="ai-top">
-        <b>✨ {mode==='admin'?t("AI Yordamchi"):t("AI Maslahatchi")}</b>
+        <b>✨ {t("AI Yordamchi")}</b>
         <div className="ai-top-acts">
           {msgs.length>0&&<button type="button" className="ai-ico-btn" title="Tozalash" onClick={resetChat}>🗑</button>}
           <button type="button" className="ai-ico-btn" onClick={close}>✕</button>
         </div>
       </div>
 
-      {isAdm&&<div className="ai-modes">
-        <button type="button" className={mode==='admin'?'on':''} onClick={()=>setMode('admin')}>🛠 Admin AI</button>
-        <button type="button" className={mode==='customer'?'on':''} onClick={()=>setMode('customer')}>🛒 Mijoz AI</button>
-      </div>}
-
-      {isAdm&&!d.ai?.ready&&<div className="ai-warn">⚠️ <b>GEMINI_API_KEY</b> kiritilmagan. Railway → Variables bo'limiga qo'shing.</div>}
+      {!d.ai?.ready&&<div className="ai-warn">⚠️ <b>GEMINI_API_KEY</b> kiritilmagan. Railway → Variables bo'limiga qo'shing.</div>}
 
       <div className="ai-list" ref={listRef}>
         {!msgs.length&&<div className="ai-empty">
           <div className="ai-empty-ico">🤖</div>
-          <p>{mode==='admin'?"Narx, aksiya, tartib raqami, statistika, buyurtma yoki xabar yuborishni oddiy tilda yozing yoki 🎤 gapiring. Har bir o'zgarishdan oldin tasdiqlash so'raladi.":t("Savolingizni yozing...")}</p>
+          <p>Narx, aksiya, tartib raqami, statistika, buyurtma yoki xabar yuborishni oddiy tilda yozing yoki 🎤 gapiring. Har bir o'zgarishdan oldin tasdiqlash so'raladi.</p>
           <div className="ai-chips">
             {quickChips.map(c=><button key={c} type="button" className="ai-chip" onClick={()=>send({text:c})}>{c}</button>)}
           </div>
@@ -2792,29 +2759,6 @@ function AiSheet({d,isAdm,mode,setMode,msgsMap,setMsgsMap,cart,setCart,onReload,
             {m.pending.state==='cancelled'&&<div className="m">❌ Bekor qilindi</div>}
             {m.pending.state==='error'&&<div className="ai-conf-err">⚠️ {m.pending.result}</div>}
           </div>}
-
-          {m.recommendations?.length>0&&(()=>{
-            const tot=m.recommendations.reduce((s,it)=>s+lsum(it.product,it.product.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1}),0)
-            return <div className="ai-recs">
-              {m.recommendations.map(it=>{
-                const p=it.product,k=keyOf(p),inCart=Boolean(cart[k])
-                const val=p.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1}
-                const qLbl=p.unit==='weight'?(val.grams>=1000?(val.grams/1000)+' kg':val.grams+' g'):(val.qty+' dona')
-                return <div className="ai-rec" key={p.id}>
-                  <div className="ai-rec-img" style={p.image?{backgroundImage:`url(${p.image})`}:{}}>{!p.image&&(EMO[p.category]||'🛒')}</div>
-                  <div className="ai-rec-info">
-                    <b>{pn(p)}</b>
-                    <div className="m">{qLbl} · <b>{so(lsum(p,val))}</b>{it.note?` · ${it.note}`:''}</div>
-                  </div>
-                  <button type="button" className={'ai-rec-add'+(inCart?' in':'')} onClick={()=>addRecItem(it)}>{inCart?'✓':'+'}</button>
-                </div>
-              })}
-              <div className="ai-rec-acts">
-                <button type="button" className="btn s" onClick={()=>addAllRecs(m.recommendations)}>🛒 {t("Hammasini savatga qo'shish")} ({so(tot)})</button>
-                <button type="button" className="btn s g" style={{flex:'none'}} onClick={()=>{close();onGoCart()}}>→</button>
-              </div>
-            </div>
-          })()}
         </div>)}
 
         {busy&&<div className="ai-msg ai"><div className="ai-bub ai-typing">✨ …</div></div>}
@@ -2822,7 +2766,7 @@ function AiSheet({d,isAdm,mode,setMode,msgsMap,setMsgsMap,cart,setCart,onReload,
 
       <div className="ai-bar">
         <button type="button" className={'ai-mic'+(rec?' rec':'')} onClick={toggleVoice} disabled={busy} title="Ovozli xabar">{rec?`⏹ ${recSec}s`:'🎤'}</button>
-        <input className="in ai-inp" value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&inp.trim())send({text:inp.trim()})}} placeholder={mode==='admin'?t("Buyruq yozing yoki ovoz yuboring..."):t("Savolingizni yozing...")} disabled={busy||rec}/>
+        <input className="in ai-inp" value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&inp.trim())send({text:inp.trim()})}} placeholder={t("Buyruq yozing yoki ovoz yuboring...")} disabled={busy||rec}/>
         <button type="button" className="ai-send" onClick={()=>inp.trim()&&send({text:inp.trim()})} disabled={busy||rec||!inp.trim()}>➤</button>
       </div>
     </div>
@@ -2833,7 +2777,7 @@ export default function App(){
   const [lang,setLang]=useState(()=>{try{return localStorage.getItem('lang')||(tg?.initDataUnsafe?.user?.language_code==='ru'?'ru':'uz')}catch{return 'uz'}})
   const [d,setD]=useState(null),[err,setErr]=useState(''),[tab,setTab]=useState('shop'),[cart,setCart]=useState({}),[toast,setToast]=useState(''),[cat,setCat]=useState('')
   const [animOverride,setAnimOverride]=useState(null)
-  const [aiOpen,setAiOpen]=useState(false),[aiMode,setAiMode]=useState('customer'),[aiMsgs,setAiMsgs]=useState({admin:[],customer:[]})
+  const [aiOpen,setAiOpen]=useState(false),[aiMsgs,setAiMsgs]=useState([])
   const syncedRef=useRef(false)
   const say=m=>{setToast(m);setTimeout(()=>setToast(''),2500)}
   const load=useCallback(()=>api('/api/init').then(res=>{
@@ -2873,9 +2817,7 @@ export default function App(){
   const showBar=n>0&&(tab==='shop'||tab==='catalog'||tab==='promo')
   const tabs=[['shop',"Do'kon"],['catalog','Katalog'],['promo','Aksiya'],['cart','Savat'],['orders','Buyurtma'],['profile','Profil']]
   const activePreset=animOverride??(d.settings.animation?.preset||'none')
-  const isAdm=d.role==='admin'||d.role==='superadmin'
-  const showAiBtn=isAdm||(d.ai?.ready&&d.ai?.customerEnabled)
-  const openAi=()=>{setAiMode(isAdm?'admin':'customer');setAiOpen(true)}
+  const showAiBtn=d.role==='superadmin'||(d.role==='admin'&&!!d.user?.canAi)
 
   return <LangCtx.Provider value={lang}>
     <FestiveOverlay preset={activePreset}/>
@@ -2884,7 +2826,7 @@ export default function App(){
         <div className="top">
           <div className="logo" onClick={()=>{setCat('');setTab('shop')}}>T</div>
           <div className="brand" onClick={()=>{setCat('');setTab('shop')}}><b>TEGEN Market</b><small>{t("Tez yetkazish va qulay xarid")}</small></div>
-          {showAiBtn&&<button type="button" className="ai-top-btn" onClick={openAi}>✨ AI</button>}
+          {showAiBtn&&<button type="button" className="ai-top-btn" onClick={()=>setAiOpen(true)}>✨ AI</button>}
           <button className="lang" onClick={toggleLang}>{lang==='ru'?'🇺🇿 UZ':'🇷🇺 RU'}</button>
         </div>
       </div>
@@ -2909,7 +2851,7 @@ export default function App(){
           <NavIcon k={k}/><span>{t(l)}</span>{k==='cart'&&n>0&&<i>{n}</i>}{k==='promo'&&d.saleCount>0&&<i>{d.saleCount}</i>}
         </button>)}
       </div>
-      {aiOpen&&<AiSheet d={d} isAdm={isAdm} mode={aiMode} setMode={setAiMode} msgsMap={aiMsgs} setMsgsMap={setAiMsgs} cart={cart} setCart={setCart} onReload={load} onGoCart={()=>setTab('cart')} say={say} close={()=>setAiOpen(false)}/>}
+      {aiOpen&&<AiSheet d={d} msgs={aiMsgs} setMsgs={setAiMsgs} onReload={load} say={say} close={()=>setAiOpen(false)}/>}
       {toast&&<div className="toast">{toast}</div>}
     </div>
   </LangCtx.Provider>

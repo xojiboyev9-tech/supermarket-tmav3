@@ -7,7 +7,7 @@ const STAFF="('operator','admin','superadmin')";
 const me=async id=>(await q('select * from users where tg_id=$1',[id])).rows[0];
 const userLang=async id=>((await q('select lang from users where tg_id=$1',[id])).rows[0]?.lang==='ru'?'ru':'uz');
 const isStaff=u=>u&&['operator','admin','superadmin'].includes(u.role);
-const isAdmin=u=>u&&['admin','superadmin'].includes(u.role);
+const canAi=u=>AI.canAi(u);
 const canBroadcast=u=>Boolean(u&&(u.role==='superadmin'||(u.role==='admin'&&u.can_broadcast)));
 const staffIds=async()=>(await q(`select tg_id from users where role in ${STAFF}`)).rows.map(r=>r.tg_id);
 const send=(id,t,kb)=>bot.telegram.sendMessage(id,t,{parse_mode:'HTML',...(kb||{})}).catch(e=>console.error('send',id,e.message));
@@ -39,7 +39,7 @@ const T={
   ageMsg:(id,age)=>`🔞 Buyurtma #${id} tarkibida ${age} yoshdan oshganlarga sotiladigan mahsulot bor.\nSiz ${age} yoshdan oshganingizni tasdiqlaysizmi?`,
   ageYes:age=>`✅ Ha, ${age} dan oshganman`,
   ageNo:"❌ Yo'q",
-  subMsg:(id,lines)=>`🔁 Buyurtma #${id}: ba'zi mahsulot qolmagan, almashtirishni taklif qilamiz:\n${lines}\n\nRozimisiz?`,
+  subMsg:(id,lines)=>`🔁 Buyurtma #${id}: ba'zi mahsulot qolmagan, almashtirishni taklif qilhamiz:\n${lines}\n\nRozimisiz?`,
   subNo:'➖ Shunsiz davom etish',
   editOk:id=>`✏️ Buyurtma #${id}: o'zgartirishga ruxsat berildi. Ilovada tahrirlang.`,
   editNo:id=>`Buyurtma #${id}: o'zgartirishga ruxsat berilmadi.`
@@ -75,8 +75,7 @@ const menu=async(ctx,u)=>{
  const l=tr(u?.lang);
  const rows=[];
  if(process.env.WEBAPP_URL)rows.push([Markup.button.webApp(l.openBtn,process.env.WEBAPP_URL)]);
- if(isAdmin(u))rows.push([Markup.button.callback('🤖 AI Yordamchi','ai:help')]);
- else if(AI.isReady()&&(await AI.getConfig()).customerEnabled)rows.push([Markup.button.callback(u?.lang==='ru'?'🤖 AI Консультант':'🤖 AI Maslahatchi','ai:on')]);
+ if(canAi(u))rows.push([Markup.button.callback('🤖 AI Yordamchi','ai:help')]);
  if(canBroadcast(u))rows.push([Markup.button.callback('📣 Yangilik / Xabar yuborish','bc:start')]);
  await ctx.reply(l.welcome(u?.role),Markup.removeKeyboard());
  return ctx.reply(l.openPrompt,rows.length?Markup.inlineKeyboard(rows):undefined);
@@ -238,12 +237,8 @@ bot.action(/^s:(yes|no):(\d+)$/,guard(async ctx=>{await O.subAnswer(ctx.from.id,
 bot.action(/^e:(ok|no):(\d+)$/,guard(async ctx=>{const u=await me(ctx.from.id);if(!isStaff(u))return ctx.answerCbQuery("Ruxsat yo'q");await O.editDecide(u.tg_id,Number(ctx.match[2]),ctx.match[1]==='ok');await ctx.editMessageReplyMarkup().catch(()=>{});await ctx.answerCbQuery('Tayyor')}));
 bot.action(/^p:(ok|no):(\d+)$/,guard(async ctx=>{const u=await me(ctx.from.id);if(!u||!['admin','superadmin'].includes(u.role))return ctx.answerCbQuery("Ruxsat yo'q");
  await O.resolveChange(u.tg_id,Number(ctx.match[2]),ctx.match[1]==='ok');await ctx.editMessageReplyMarkup().catch(()=>{});await ctx.answerCbQuery('Tayyor')}));
-/* AI Assistant in Bot (Admin: always on for plain text/voice; Customer: opt-in toggle so support chat stays intact) */
-const aiCustMode=new Set();
+/* AI Assistant in Bot (only superadmin + selected admins via can_ai) */
 const AI_ADMIN_HELP="🤖 <b>Admin AI Yordamchi</b>\n\nMenga oddiy matn yoki 🎤 <b>ovozli xabar</b> yuboring, masalan:\n• <i>Bugungi savdo qancha, top mahsulotlar?</i>\n• <i>Olmani Meva katalogida 3-o'ringa qo'y</i>\n• <i>Bananga ertagacha 15% aksiya qil</i>\n• <i>Coca-Cola 1.5 L ni o'chir</i>\n• <i>Oxirgi buyurtmalarni ko'rsat</i>\n• <i>Barchaga: Ertaga 9:00 da ochilamiz deb xabar yubor</i>\n\nHar bir o'zgartirishdan oldin <b>Tasdiqlash</b> so'rayman. Suhbatni tozalash: /ai_reset";
-const aiCustHelp=lg=>lg==='ru'
- ?"🤖 <b>AI Консультант TEGEN Market</b>\n\nНапишите или отправьте 🎤 <b>голосовое</b>, например:\n• <i>Что нужно для плова на 4 человек?</i>\n• <i>Какие сегодня акции?</i>\n• <i>Где мой заказ?</i>\n\nЧтобы написать администратору, нажмите кнопку ниже."
- :"🤖 <b>AI Maslahatchi (TEGEN Market)</b>\n\nSavolingizni yozing yoki 🎤 <b>ovozli xabar</b> yuboring, masalan:\n• <i>4 kishiga palov uchun nima kerak?</i>\n• <i>Bugungi aksiyalar qaysilar?</i>\n• <i>Buyurtmam qayerda qoldi?</i>\n\nAdminga yozish uchun pastdagi tugmani bosing.";
 
 async function downloadTgAudio(ctx,fileObj){
  if(!fileObj?.file_id)return null;
@@ -266,61 +261,27 @@ async function runAdminAi(ctx,u,payload){
   return ctx.reply(esc(r.reply).slice(0,4000),{parse_mode:'HTML'});
  }catch(e){return ctx.reply('⚠️ '+esc(e.message||'AI xatosi'),{parse_mode:'HTML'})}
 }
-async function runCustAi(ctx,u,payload){
- await ctx.sendChatAction('typing').catch(()=>{});
- const lg=u?.lang==='ru'?'ru':'uz';
- try{
-  const r=await AI.chatCustomer(u,payload);
-  let msg=esc(r.reply);
-  if(r.recommendations?.length){
-   const lines=r.recommendations.map(it=>{
-    const p=it.product,nm=lg==='uz'?(p.name_uz||p.name):p.name;
-    const ep=(p.sale_price&&p.sale_price>0&&p.sale_price<p.price&&(!p.sale_until||new Date(p.sale_until)>new Date()))?p.sale_price:p.price;
-    const qLbl=p.unit==='weight'?(it.grams>=1000?(it.grams/1000)+' kg':it.grams+' g'):(it.qty+' dona');
-    return`• ${esc(nm)} (${qLbl}) — <b>${so(ep,lg)}</b>`;
-   });
-   msg+=`\n\n🛒 <b>${lg==='ru'?'Найдено в магазине':'Doʻkonda topildi'}:</b>\n${lines.join('\n')}`;
-  }
-  const rows=[];
-  if(process.env.WEBAPP_URL)rows.push([Markup.button.webApp(tr(lg).openBtn,process.env.WEBAPP_URL)]);
-  rows.push([Markup.button.callback(lg==='ru'?'📩 Написать админу':'📩 Adminga yozish','ai:off')]);
-  return ctx.reply(msg.slice(0,4000),{parse_mode:'HTML',...Markup.inlineKeyboard(rows)});
- }catch(e){return ctx.reply('⚠️ '+esc(e.message||'AI xatosi'),{parse_mode:'HTML'})}
-}
 
 bot.command('ai',async ctx=>{
  const u=await me(ctx.from.id);
- if(!u)return ctx.reply(tr().needStart);
- if(isAdmin(u))return ctx.reply(AI_ADMIN_HELP,{parse_mode:'HTML'});
- if(!AI.isReady()||!(await AI.getConfig()).customerEnabled)return ctx.reply(u.lang==='ru'?'🤖 AI консультант сейчас отключён.':"🤖 AI maslahatchi hozircha o'chirilgan.");
- aiCustMode.add(bk(ctx.from.id));
- return ctx.reply(aiCustHelp(u.lang),{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback(u.lang==='ru'?'📩 Написать админу':'📩 Adminga yozish','ai:off')]])});
+ if(!canAi(u))return;
+ return ctx.reply(AI_ADMIN_HELP,{parse_mode:'HTML'});
 });
 bot.command('ai_reset',async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canAi(u))return;
  AI.clearHistory(ctx.from.id);
  return ctx.reply('🧹 AI suhbat tarixi tozalandi.');
 });
 bot.action('ai:help',guard(async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canAi(u))return ctx.answerCbQuery("Ruxsat yo'q",{show_alert:true});
  await ctx.answerCbQuery().catch(()=>{});
  return ctx.reply(AI_ADMIN_HELP,{parse_mode:'HTML'});
 }));
-bot.action('ai:on',guard(async ctx=>{
- const u=await me(ctx.from.id);
- if(!u)return ctx.answerCbQuery(tr().needStart,{show_alert:true});
- if(!AI.isReady()||!(await AI.getConfig()).customerEnabled)return ctx.answerCbQuery("AI hozircha o'chirilgan",{show_alert:true});
- aiCustMode.add(bk(ctx.from.id));
- await ctx.answerCbQuery('🤖 AI yoqildi').catch(()=>{});
- return ctx.reply(aiCustHelp(u.lang),{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback(u.lang==='ru'?'📩 Написать админу':'📩 Adminga yozish','ai:off')]])});
-}));
-bot.action('ai:off',guard(async ctx=>{
- const u=await me(ctx.from.id);
- aiCustMode.delete(bk(ctx.from.id));
- await ctx.answerCbQuery('OK').catch(()=>{});
- return ctx.reply(u?.lang==='ru'?'📩 Режим связи с админом включён — напишите ваш вопрос.':'📩 Adminga yozish rejimi yoqildi — xabaringizni yozing.');
-}));
 bot.action(/^ai:ok:([a-f0-9]+)$/,guard(async ctx=>{
  const u=await me(ctx.from.id);
- if(!isAdmin(u))return ctx.answerCbQuery("Ruxsat yo'q",{show_alert:true});
+ if(!canAi(u))return ctx.answerCbQuery("Ruxsat yo'q",{show_alert:true});
  await ctx.answerCbQuery('⏳ Bajarilmoqda...').catch(()=>{});
  const r=await AI.confirmAction(u,ctx.match[1]);
  await ctx.editMessageText(`✅ <b>Bajarildi:</b>\n${esc(r.message)}`,{parse_mode:'HTML'}).catch(()=>{});
@@ -333,17 +294,10 @@ bot.action(/^ai:no:([a-f0-9]+)$/,guard(async ctx=>{
 }));
 
 bot.on(['voice','audio'],async ctx=>{
- const u=await me(ctx.from.id);if(!u)return;
- const key=bk(ctx.from.id);
- const fileObj=ctx.message.voice||ctx.message.audio;
- if(isAdmin(u)&&bcDraft.get(key)?.step!=='await'){
-  try{const aud=await downloadTgAudio(ctx,fileObj);if(aud)return runAdminAi(ctx,u,aud)}
-  catch(e){return ctx.reply('⚠️ '+esc(e.message||'Ovoz xatosi'),{parse_mode:'HTML'})}
- }
- if(!isStaff(u)&&aiCustMode.has(key)){
-  try{const aud=await downloadTgAudio(ctx,fileObj);if(aud)return runCustAi(ctx,u,aud)}
-  catch(e){return ctx.reply('⚠️ '+esc(e.message||'Ovoz xatosi'),{parse_mode:'HTML'})}
- }
+ const u=await me(ctx.from.id);
+ if(!canAi(u)||bcDraft.get(bk(ctx.from.id))?.step==='await')return;
+ try{const aud=await downloadTgAudio(ctx,ctx.message.voice||ctx.message.audio);if(aud)return runAdminAi(ctx,u,aud)}
+ catch(e){return ctx.reply('⚠️ '+esc(e.message||'Ovoz xatosi'),{parse_mode:'HTML'})}
 });
 
 const LINK=/(https?:|www\.|t\.me|@\w{4,}|\.(com|uz|ru|org|net)\b)/i;
@@ -365,7 +319,7 @@ bot.on(['text','photo','video','animation','video_note','document'],async ctx=>{
    const m=(await q('select user_id from support_map where chat_id=$1 and msg_id=$2',[ctx.chat.id,r.message_id])).rows[0];
    if(m){await bot.telegram.copyMessage(m.user_id,ctx.chat.id,ctx.message.message_id);return ctx.reply('✅ Yuborildi')}
   }
-  if(isAdmin(u)&&ctx.message.text&&!ctx.message.text.trim().startsWith('/')){
+  if(canAi(u)&&ctx.message.text&&!ctx.message.text.trim().startsWith('/')){
    return runAdminAi(ctx,u,{text:ctx.message.text});
   }
   return;
@@ -374,9 +328,6 @@ bot.on(['text','photo','video','animation','video_note','document'],async ctx=>{
  const l=tr(u?.lang);
  if(!u)return ctx.reply(l.needStart);
  if(ctx.message.text&&LINK.test(ctx.message.text)||ctx.message.caption&&LINK.test(ctx.message.caption))return ctx.reply(l.noLinks);
- if(aiCustMode.has(key)&&ctx.message.text&&!ctx.message.text.trim().startsWith('/')){
-  return runCustAi(ctx,u,{text:ctx.message.text});
- }
  for(const id of await staffIds()){const h=await bot.telegram.sendMessage(id,`📩 <b>${esc(u.name)}</b> | ${esc(u.phone||'—')}\n(Javob berish uchun shu xabarga reply qiling)`,{parse_mode:'HTML'}).catch(()=>null);
   const c=await bot.telegram.copyMessage(id,ctx.chat.id,ctx.message.message_id).catch(()=>null);
   for(const x of [h,c])if(x)await q('insert into support_map values($1,$2,$3) on conflict do nothing',[id,x.message_id,u.tg_id])}
