@@ -3,13 +3,13 @@ require('dotenv').config();
 const express=require('express'),helmet=require('helmet'),cors=require('cors'),crypto=require('crypto'),zlib=require('zlib');
 const {q,audit,getSetting,setSetting}=require('./db');const O=require('./orders');
 const {bot,notifyCardApplied,notifyCardApproved,notifyCardRejected,notifyAutoBlock,runBroadcast}=require('./bot');
-const S=require('./security');
+const S=require('./security');const AI=require('./ai');
 process.on('unhandledRejection',e=>console.error('unhandled',e));
 const app=express();app.set('trust proxy',1);app.use(helmet({contentSecurityPolicy:false,crossOriginEmbedderPolicy:false,frameguard:false,referrerPolicy:{policy:'strict-origin-when-cross-origin'}}));
 const origin=(process.env.WEBAPP_URL||'').replace(/\/+$/,'');
 app.use(cors({origin:origin||false}));
-const json1=express.json({limit:'1mb'}),json10=express.json({limit:'10mb'});
-app.use((req,res,next)=>(req.path==='/api/sync/products'||req.path==='/api/admin/products/sync')?json10(req,res,next):json1(req,res,next));
+const json1=express.json({limit:'1mb'}),json4=express.json({limit:'4mb'}),json10=express.json({limit:'10mb'});
+app.use((req,res,next)=>(req.path==='/api/sync/products'||req.path==='/api/admin/products/sync')?json10(req,res,next):req.path==='/api/ai/chat'?json4(req,res,next):json1(req,res,next));
 
 /* Lightweight gzip compression for JSON API responses > 1KB */
 app.use('/api',(req,res,next)=>{
@@ -55,15 +55,17 @@ setInterval(()=>{const now=Date.now();for(const [k,v] of userCache)if(v.exp<=now
 const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and (sale_until is null or sale_until>now())';
 let pubCache=null,pubExp=0,pubPromise=null;
 const bustPub=()=>{pubCache=null;pubExp=0};
+AI.init({runBroadcast,bustPub});
 async function getPub(){
  if(pubCache&&pubExp>Date.now())return pubCache;
  if(pubPromise)return pubPromise;
  pubPromise=(async()=>{
-  const [whR,dlR,anR,suR,bnR,bdR,vdR,ctR,scR,fmR]=await Promise.all([
+  const [whR,dlR,anR,suR,aiR,bnR,bdR,vdR,ctR,scR,fmR]=await Promise.all([
    getSetting('warehouse'),
    getSetting('delivery'),
    q("select value from settings where key='animation'"),
    q("select value from settings where key='support'"),
+   AI.getConfig(),
    q('select id,image,title,subtitle,link from banners where active order by sort,id'),
    q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`),
    q('select id,title,yt_id from videos where active order by id desc'),
@@ -76,6 +78,7 @@ async function getPub(){
    d:dlR,
    anim:anR.rows[0]?.value||{preset:'none'},
    sup:suR.rows[0]?.value||{username:'',phone:''},
+   ai:aiR,
    banners:bnR.rows,
    bundles:bdR.rows,
    videos:vdR.rows,
@@ -158,7 +161,8 @@ app.get('/api/init',wrap(async(req,res)=>{
   setupCount:suR?suR.rows[0].c:0,
   lastSync:lsR?lsR.rows[0]?.value||null:null,
   syncKeySet:isAdm?Boolean(String(process.env.SYNC_API_KEY||'').trim()):false,
-  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
+  ai:{ready:AI.isReady(),customerEnabled:pub.ai.customerEnabled,customerDailyLimit:pub.ai.customerDailyLimit,...(isAdm?{model:AI.modelName(),today:AI.getTodayStats()}:{})},
+  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup,ai:pub.ai},
   cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,orders:ordR.rows,
   pendingProducts:ppR?ppR.rows:[],
   roles:rlR?rlR.rows:null,
@@ -242,6 +246,17 @@ app.put('/api/settings/support',need(...ADM),wrap(async(req,res)=>{const raw=Str
 app.put('/api/settings/warehouse',need('superadmin'),wrap(async(req,res)=>{const v={enabled:!!req.body.enabled};await setSetting('warehouse',v);bustPub();
  await audit(req.me.tg_id,'settings.warehouse','settings',v);res.json(v)}));
 app.put('/api/settings/animation',need('superadmin'),wrap(async(req,res)=>{const ok=['none','newyear','navruz','ramazon','autumn','confetti'];const preset=ok.includes(req.body.preset)?req.body.preset:'none';const v={preset};await setSetting('animation',v);bustPub();await audit(req.me.tg_id,'settings.animation','settings',v);res.json(v)}));
+app.put('/api/settings/ai',need(...ADM),wrap(async(req,res)=>res.json(await AI.saveConfig(req.me.tg_id,req.body||{}))));
+app.post('/api/ai/chat',S.actionLimit('ai',15,60000),wrap(async(req,res)=>{
+ const b=req.body||{};
+ const adminMode=b.mode==='admin'&&ADM.includes(req.me.role);
+ const payload={text:b.text||'',audioBase64:b.audioBase64||'',audioMime:b.audioMime||''};
+ const out=adminMode?await AI.chatAdmin(req.me,payload):await AI.chatCustomer(req.me,payload);
+ res.json({mode:adminMode?'admin':'customer',...out});
+}));
+app.post('/api/ai/confirm',need(...ADM),wrap(async(req,res)=>res.json(await AI.confirmAction(req.me,req.body?.actionId))));
+app.post('/api/ai/cancel',need(...ADM),wrap(async(req,res)=>res.json(AI.cancelAction(req.me,req.body?.actionId))));
+app.post('/api/ai/reset',wrap(async(req,res)=>{AI.clearHistory(req.me.tg_id,req.body?.mode);res.json({success:true})}));
 app.put('/api/products/:id/stock',need('superadmin'),wrap(async(req,res)=>{if(!(await getSetting('warehouse')).enabled)return res.status(400).json({error:'Ombor tizimi yoqilmagan'});
  await q('update products set stock=$1 where id=$2',[req.body.stock==null?null:Number(req.body.stock),+req.params.id]);await audit(req.me.tg_id,'product.stock','product:'+req.params.id,req.body);res.json({success:true})}));
 app.post('/api/roles',need('superadmin'),wrap(async(req,res)=>{const{targetId,role,roleTitle,name,department,canBroadcast}=req.body;

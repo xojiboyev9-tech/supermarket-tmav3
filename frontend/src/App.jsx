@@ -87,7 +87,16 @@ const RU={
   "Ko'rinish":"Товар","Tahlil":"Анализ",
   "Yangi rol qo'shish":"Добавить новую роль","Yangi katalog qo'shish":"Добавить новую категорию",
   "Rolni tanlang":"Выберите роль","Katalogni tanlang":"Выберите категорию",
-  "Boshqa bo'limlar":"Другие разделы"
+  "Boshqa bo'limlar":"Другие разделы",
+  "AI Maslahatchi":"AI Консультант","AI Yordamchi":"AI Помощник",
+  "Hammasini savatga qo'shish":"Добавить всё в корзину",
+  "Savolingizni yozing...":"Напишите ваш вопрос...",
+  "Buyruq yozing yoki ovoz yuboring...":"Напишите команду или отправьте голос...",
+  "4 kishiga palov uchun nima kerak?":"Что нужно для плова на 4 человек?",
+  "Tez salat uchun mahsulotlar":"Продукты для быстрого салата",
+  "Bugungi aksiyalar qaysilar?":"Какие сегодня акции?",
+  "Buyurtmam qayerda qoldi?":"Где мой заказ?",
+  "Suhbat tozalandi":"Чат очищен"
 }
 
 const FAM_PRESETS=['Kundalik ehtiyoj','Nonushta','Oilaviy','Bolalar uchun','Bayramona','Premium']
@@ -2476,6 +2485,7 @@ function Settings({d,act,onReload,onPreviewAnim}){
   const {t}=useLang()
   const [s,setS]=useState(d.settings.delivery),[u,setU]=useState({targetId:'',roleKey:'worker',role:'worker',roleTitle:'',name:'',department:d.categories[0],canBroadcast:false})
   const [sup,setSup]=useState(()=>({username:d.settings.support?.username||'',phone:d.settings.support?.phone||''}))
+  const [aiCfg,setAiCfg]=useState(()=>({customerEnabled:d.settings.ai?.customerEnabled!==false,customerDailyLimit:d.settings.ai?.customerDailyLimit||15}))
   const [preset,setPreset]=useState(()=>d.settings.animation?.preset||'none')
   const cleanUser=String(sup.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim()
   return <><div className="card"><h2>{t("🚚 Yetkazib berish")}</h2>
@@ -2492,6 +2502,18 @@ function Settings({d,act,onReload,onPreviewAnim}){
       {cleanUser&&<div className="m" style={{margin:'-4px 0 8px',color:'var(--b)',fontWeight:600}}>✈️ https://t.me/{cleanUser}</div>}
       <label className="m">{t("Telefon raqam (ixtiyoriy)")}<input className="in" type="tel" placeholder="+998 90 123 45 67" value={sup.phone} onChange={e=>setSup({...sup,phone:e.target.value})}/></label>
       <button className="btn s" onClick={()=>act(async()=>{const res=await api('/api/settings/support','PUT',sup);setSup(res)},'Saqlandi')}>{t("Saqlash")}</button>
+    </div>
+    <div className="card">
+      <h2>🤖 Sun'iy intellekt (AI)</h2>
+      <div className="row" style={{margin:'4px 0 8px'}}>
+        <span className="m">Gemini holati</span>
+        <span className={'badge '+(d.ai?.ready?'green':'amber')}>{d.ai?.ready?`✅ Ulangan (${d.ai.model||'gemini'})`:'⚠️ GEMINI_API_KEY yoʻq'}</span>
+      </div>
+      {d.ai?.today&&<div className="m" style={{marginBottom:8}}>Bugun: Admin <b>{d.ai.today.adminRequests}</b> · Mijozlar <b>{d.ai.today.customerRequests}</b> so'rov</div>}
+      {!d.ai?.ready&&<div className="m" style={{marginBottom:8,color:'#B45309'}}>Railway → Variables bo'limiga <b>GEMINI_API_KEY</b> qo'shing, shunda AI botda va ilovada ishga tushadi.</div>}
+      <label className="row"><span>Mijozlar uchun AI maslahatchi</span><input type="checkbox" checked={!!aiCfg.customerEnabled} onChange={e=>setAiCfg({...aiCfg,customerEnabled:e.target.checked})}/></label>
+      <label className="m">Har bir mijozga kunlik limit (savol/kun)<input className="in" type="text" inputMode="numeric" value={aiCfg.customerDailyLimit||''} onChange={e=>setAiCfg({...aiCfg,customerDailyLimit:digits(e.target.value)})}/></label>
+      <button className="btn s" onClick={()=>act(async()=>{const res=await api('/api/settings/ai','PUT',aiCfg);setAiCfg(res)},'Saqlandi')}>{t("Saqlash")}</button>
     </div>
     {d.role==='superadmin'&&<>
       <div className="card">
@@ -2581,8 +2603,8 @@ function AdminSecurity({act,say}){
   </>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'products.sync':'📥 POS / CSV sinxronizatsiya','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
-const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','settings.ai':'🤖 AI sozlamasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category|ai)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
   const {t,so}=useLang()
@@ -2609,10 +2631,209 @@ function Admin({d,act,say,onReload,onPreviewAnim}){
     {tb==='d'&&<Dash onNav={navTo}/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say} initFilter={navOpts.orderFilter}/>}{tb==='p'&&<Products d={d} act={act} say={say} onReload={onReload} initState={navOpts.prodState} initCat={navOpts.prodCat}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act} onReload={onReload}/>}{tb==='s'&&<Settings d={d} act={act} onReload={onReload} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
+function AiSheet({d,isAdm,mode,setMode,msgsMap,setMsgsMap,cart,setCart,onReload,onGoCart,say,close}){
+  const {t,so,pn}=useLang()
+  const [inp,setInp]=useState(''),[busy,setBusy]=useState(false),[rec,setRec]=useState(false),[recSec,setRecSec]=useState(0)
+  const listRef=useRef(null),mrRef=useRef(null),timerRef=useRef(null)
+  const msgs=msgsMap[mode]||[]
+  const setMsgs=fn=>setMsgsMap(prev=>({...prev,[mode]:typeof fn==='function'?fn(prev[mode]||[]):fn}))
+
+  useEffect(()=>{if(listRef.current)listRef.current.scrollTop=listRef.current.scrollHeight},[msgs.length,busy,mode])
+  useEffect(()=>()=>{
+    clearInterval(timerRef.current)
+    try{mrRef.current?.stream?.getTracks().forEach(tr=>tr.stop())}catch{}
+  },[])
+
+  const send=async payload=>{
+    if(busy)return
+    const userLabel=payload.text||(payload.audioBase64?'🎤 Ovozli xabar':'')
+    if(!userLabel)return
+    const uid=Date.now()+Math.random()
+    setMsgs(prev=>[...prev,{id:uid,role:'user',text:userLabel}])
+    setInp('')
+    setBusy(true)
+    try{
+      const r=await api('/api/ai/chat','POST',{mode,...payload})
+      setMsgs(prev=>[...prev,{
+        id:uid+1,role:'ai',text:r.reply,
+        pending:r.pending?{...r.pending,state:'waiting'}:null,
+        recommendations:r.recommendations||[]
+      }])
+    }catch(e){
+      setMsgs(prev=>[...prev,{id:uid+1,role:'err',text:e.message||'Xato'}])
+    }finally{setBusy(false)}
+  }
+
+  const doConfirm=async(msgId,actionId,yes)=>{
+    setMsgs(prev=>prev.map(m=>m.id===msgId&&m.pending?{...m,pending:{...m.pending,state:'busy'}}:m))
+    try{
+      if(yes){
+        const r=await api('/api/ai/confirm','POST',{actionId})
+        setMsgs(prev=>prev.map(m=>m.id===msgId&&m.pending?{...m,pending:{...m.pending,state:'done',result:r.message}}:m))
+        say('✅ Bajarildi')
+        onReload()
+      }else{
+        await api('/api/ai/cancel','POST',{actionId}).catch(()=>{})
+        setMsgs(prev=>prev.map(m=>m.id===msgId&&m.pending?{...m,pending:{...m.pending,state:'cancelled'}}:m))
+      }
+    }catch(e){
+      setMsgs(prev=>prev.map(m=>m.id===msgId&&m.pending?{...m,pending:{...m.pending,state:'error',result:e.message}}:m))
+      say(e.message||'Xato')
+    }
+  }
+
+  const addRecItem=it=>{
+    const p=it.product,k=keyOf(p)
+    const val=p.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1}
+    setCart(c=>({...c,[k]:{p,...val}}))
+    say(t("Savatga qo'shildi ✅"))
+  }
+  const addAllRecs=recs=>{
+    setCart(c=>{
+      const next={...c}
+      for(const it of recs){
+        const p=it.product,k=keyOf(p)
+        next[k]={p,...(p.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1})}
+      }
+      return next
+    })
+    say(t("Savatga qo'shildi ✅"))
+  }
+
+  const toggleVoice=async()=>{
+    if(rec){
+      try{mrRef.current?.stop()}catch{}
+      return
+    }
+    if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined'){
+      say("Ovozli xabar uchun Telegram botni ishlating 🎤")
+      return
+    }
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true})
+      const mime=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?'audio/webm;codecs=opus':(MediaRecorder.isTypeSupported('audio/mp4')?'audio/mp4':'')
+      const mr=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream)
+      const chunks=[]
+      mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)}
+      mr.onstop=()=>{
+        clearInterval(timerRef.current)
+        stream.getTracks().forEach(tr=>tr.stop())
+        setRec(false);setRecSec(0);mrRef.current=null
+        const blob=new Blob(chunks,{type:mr.mimeType||'audio/webm'})
+        if(blob.size<400)return
+        const fr=new FileReader()
+        fr.onload=()=>{
+          const s=String(fr.result||'')
+          const b64=s.includes(',')?s.split(',')[1]:''
+          if(b64)send({audioBase64:b64,audioMime:(mr.mimeType||'audio/webm').split(';')[0]})
+        }
+        fr.readAsDataURL(blob)
+      }
+      mrRef.current=mr
+      mr.start()
+      setRec(true);setRecSec(0)
+      timerRef.current=setInterval(()=>setRecSec(x=>{
+        if(x>=29){try{mr.stop()}catch{};return 30}
+        return x+1
+      }),1000)
+    }catch{
+      say("Mikrofon ruxsati yo'q — Telegram botda ovoz yuboring 🎤")
+    }
+  }
+
+  const resetChat=async()=>{
+    await api('/api/ai/reset','POST',{mode}).catch(()=>{})
+    setMsgs([])
+    say(t("Suhbat tozalandi"))
+  }
+
+  const quickChips=mode==='admin'
+    ?['Bugungi savdo va top mahsulotlar?','Oxirgi buyurtmalarni koʻrsat','Aksiyadagi mahsulotlar qaysilar?','Olmani Meva katalogida 3-oʻringa qoʻy']
+    :[t("4 kishiga palov uchun nima kerak?"),t("Tez salat uchun mahsulotlar"),t("Bugungi aksiyalar qaysilar?"),t("Buyurtmam qayerda qoldi?")]
+
+  return <div className="sheet ai-sheet" onClick={close}>
+    <div className="ai-box" onClick={e=>e.stopPropagation()}>
+      <div className="sheet-handle"/>
+      <div className="ai-top">
+        <b>✨ {mode==='admin'?t("AI Yordamchi"):t("AI Maslahatchi")}</b>
+        <div className="ai-top-acts">
+          {msgs.length>0&&<button type="button" className="ai-ico-btn" title="Tozalash" onClick={resetChat}>🗑</button>}
+          <button type="button" className="ai-ico-btn" onClick={close}>✕</button>
+        </div>
+      </div>
+
+      {isAdm&&<div className="ai-modes">
+        <button type="button" className={mode==='admin'?'on':''} onClick={()=>setMode('admin')}>🛠 Admin AI</button>
+        <button type="button" className={mode==='customer'?'on':''} onClick={()=>setMode('customer')}>🛒 Mijoz AI</button>
+      </div>}
+
+      {isAdm&&!d.ai?.ready&&<div className="ai-warn">⚠️ <b>GEMINI_API_KEY</b> kiritilmagan. Railway → Variables bo'limiga qo'shing.</div>}
+
+      <div className="ai-list" ref={listRef}>
+        {!msgs.length&&<div className="ai-empty">
+          <div className="ai-empty-ico">🤖</div>
+          <p>{mode==='admin'?"Narx, aksiya, tartib raqami, statistika, buyurtma yoki xabar yuborishni oddiy tilda yozing yoki 🎤 gapiring. Har bir o'zgarishdan oldin tasdiqlash so'raladi.":t("Savolingizni yozing...")}</p>
+          <div className="ai-chips">
+            {quickChips.map(c=><button key={c} type="button" className="ai-chip" onClick={()=>send({text:c})}>{c}</button>)}
+          </div>
+        </div>}
+
+        {msgs.map(m=><div key={m.id} className={'ai-msg '+m.role}>
+          <div className="ai-bub">{m.text}</div>
+
+          {m.pending&&<div className="ai-conf">
+            <div className="ai-conf-sum">{m.pending.summary}</div>
+            {m.pending.state==='waiting'&&<div className="ai-conf-btns">
+              <button type="button" className="btn s" onClick={()=>doConfirm(m.id,m.pending.id,true)}>✅ Tasdiqlash</button>
+              <button type="button" className="btn s g" onClick={()=>doConfirm(m.id,m.pending.id,false)}>❌ Bekor qilish</button>
+            </div>}
+            {m.pending.state==='busy'&&<div className="m">⏳ Bajarilmoqda…</div>}
+            {m.pending.state==='done'&&<div className="ai-conf-ok">{m.pending.result||'✅ Bajarildi'}</div>}
+            {m.pending.state==='cancelled'&&<div className="m">❌ Bekor qilindi</div>}
+            {m.pending.state==='error'&&<div className="ai-conf-err">⚠️ {m.pending.result}</div>}
+          </div>}
+
+          {m.recommendations?.length>0&&(()=>{
+            const tot=m.recommendations.reduce((s,it)=>s+lsum(it.product,it.product.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1}),0)
+            return <div className="ai-recs">
+              {m.recommendations.map(it=>{
+                const p=it.product,k=keyOf(p),inCart=Boolean(cart[k])
+                const val=p.unit==='weight'?{grams:it.grams||500}:{qty:it.qty||1}
+                const qLbl=p.unit==='weight'?(val.grams>=1000?(val.grams/1000)+' kg':val.grams+' g'):(val.qty+' dona')
+                return <div className="ai-rec" key={p.id}>
+                  <div className="ai-rec-img" style={p.image?{backgroundImage:`url(${p.image})`}:{}}>{!p.image&&(EMO[p.category]||'🛒')}</div>
+                  <div className="ai-rec-info">
+                    <b>{pn(p)}</b>
+                    <div className="m">{qLbl} · <b>{so(lsum(p,val))}</b>{it.note?` · ${it.note}`:''}</div>
+                  </div>
+                  <button type="button" className={'ai-rec-add'+(inCart?' in':'')} onClick={()=>addRecItem(it)}>{inCart?'✓':'+'}</button>
+                </div>
+              })}
+              <div className="ai-rec-acts">
+                <button type="button" className="btn s" onClick={()=>addAllRecs(m.recommendations)}>🛒 {t("Hammasini savatga qo'shish")} ({so(tot)})</button>
+                <button type="button" className="btn s g" style={{flex:'none'}} onClick={()=>{close();onGoCart()}}>→</button>
+              </div>
+            </div>
+          })()}
+        </div>)}
+
+        {busy&&<div className="ai-msg ai"><div className="ai-bub ai-typing">✨ …</div></div>}
+      </div>
+
+      <div className="ai-bar">
+        <button type="button" className={'ai-mic'+(rec?' rec':'')} onClick={toggleVoice} disabled={busy} title="Ovozli xabar">{rec?`⏹ ${recSec}s`:'🎤'}</button>
+        <input className="in ai-inp" value={inp} onChange={e=>setInp(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&inp.trim())send({text:inp.trim()})}} placeholder={mode==='admin'?t("Buyruq yozing yoki ovoz yuboring..."):t("Savolingizni yozing...")} disabled={busy||rec}/>
+        <button type="button" className="ai-send" onClick={()=>inp.trim()&&send({text:inp.trim()})} disabled={busy||rec||!inp.trim()}>➤</button>
+      </div>
+    </div>
+  </div>
+}
+
 export default function App(){
   const [lang,setLang]=useState(()=>{try{return localStorage.getItem('lang')||(tg?.initDataUnsafe?.user?.language_code==='ru'?'ru':'uz')}catch{return 'uz'}})
   const [d,setD]=useState(null),[err,setErr]=useState(''),[tab,setTab]=useState('shop'),[cart,setCart]=useState({}),[toast,setToast]=useState(''),[cat,setCat]=useState('')
   const [animOverride,setAnimOverride]=useState(null)
+  const [aiOpen,setAiOpen]=useState(false),[aiMode,setAiMode]=useState('customer'),[aiMsgs,setAiMsgs]=useState({admin:[],customer:[]})
   const syncedRef=useRef(false)
   const say=m=>{setToast(m);setTimeout(()=>setToast(''),2500)}
   const load=useCallback(()=>api('/api/init').then(res=>{
@@ -2652,6 +2873,9 @@ export default function App(){
   const showBar=n>0&&(tab==='shop'||tab==='catalog'||tab==='promo')
   const tabs=[['shop',"Do'kon"],['catalog','Katalog'],['promo','Aksiya'],['cart','Savat'],['orders','Buyurtma'],['profile','Profil']]
   const activePreset=animOverride??(d.settings.animation?.preset||'none')
+  const isAdm=d.role==='admin'||d.role==='superadmin'
+  const showAiBtn=isAdm||(d.ai?.ready&&d.ai?.customerEnabled)
+  const openAi=()=>{setAiMode(isAdm?'admin':'customer');setAiOpen(true)}
 
   return <LangCtx.Provider value={lang}>
     <FestiveOverlay preset={activePreset}/>
@@ -2660,6 +2884,7 @@ export default function App(){
         <div className="top">
           <div className="logo" onClick={()=>{setCat('');setTab('shop')}}>T</div>
           <div className="brand" onClick={()=>{setCat('');setTab('shop')}}><b>TEGEN Market</b><small>{t("Tez yetkazish va qulay xarid")}</small></div>
+          {showAiBtn&&<button type="button" className="ai-top-btn" onClick={openAi}>✨ AI</button>}
           <button className="lang" onClick={toggleLang}>{lang==='ru'?'🇺🇿 UZ':'🇷🇺 RU'}</button>
         </div>
       </div>
@@ -2684,6 +2909,7 @@ export default function App(){
           <NavIcon k={k}/><span>{t(l)}</span>{k==='cart'&&n>0&&<i>{n}</i>}{k==='promo'&&d.saleCount>0&&<i>{d.saleCount}</i>}
         </button>)}
       </div>
+      {aiOpen&&<AiSheet d={d} isAdm={isAdm} mode={aiMode} setMode={setAiMode} msgsMap={aiMsgs} setMsgsMap={setAiMsgs} cart={cart} setCart={setCart} onReload={load} onGoCart={()=>setTab('cart')} say={say} close={()=>setAiOpen(false)}/>}
       {toast&&<div className="toast">{toast}</div>}
     </div>
   </LangCtx.Provider>
