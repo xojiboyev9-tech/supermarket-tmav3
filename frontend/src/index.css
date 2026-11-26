@@ -565,3 +565,18 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 
 
 
+/* Admin: per-category manual position */
+.pos-wrap{position:relative}
+.pos-badge{position:absolute;right:4px;bottom:4px;min-width:22px;height:22px;padding:0 6px;border:0;border-radius:99px;background:rgba(17,24,39,.72);color:#fff;font-size:11px;font-weight:800;line-height:22px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.2);z-index:2;cursor:pointer}
+.pos-badge.set{background:var(--b6,#E11D48)}
+.pos-badge:active{transform:scale(.92)}
+.pos-head{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
+.pos-head b{font-size:15px;line-height:1.25}
+.pos-head span{font-size:12.5px;color:#6B7280}
+.pos-lbl{display:block;font-size:12.5px;font-weight:700;color:#374151;margin-bottom:6px}
+.pos-row{display:flex;gap:8px;align-items:stretch}
+.pos-row .btn{width:52px;flex:none;font-size:20px;padding:0}
+.pos-inp{flex:1;text-align:center;font-size:20px;font-weight:800;-moz-appearance:textfield}
+.pos-inp::-webkit-outer-spin-button,.pos-inp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pos-quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.pos-quick .btn{flex:1 1 auto}
