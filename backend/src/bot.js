@@ -1,5 +1,5 @@
 // JOYI: backend/src/bot.js  (GitHub'da shu yo'l bilan yarating)
-const {Telegraf,Markup}=require('telegraf');const {q,audit}=require('./db');const O=require('./orders');const {checkBotFlood}=require('./security');
+const {Telegraf,Markup}=require('telegraf');const {q,audit}=require('./db');const O=require('./orders');const {checkBotFlood}=require('./security');const AI=require('./ai');
 const bot=new Telegraf(process.env.BOT_TOKEN||'0:x');
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const so=(n,l='uz')=>Number(n).toLocaleString('ru-RU')+(l==='ru'?' сум':" so'm");
@@ -7,6 +7,7 @@ const STAFF="('operator','admin','superadmin')";
 const me=async id=>(await q('select * from users where tg_id=$1',[id])).rows[0];
 const userLang=async id=>((await q('select lang from users where tg_id=$1',[id])).rows[0]?.lang==='ru'?'ru':'uz');
 const isStaff=u=>u&&['operator','admin','superadmin'].includes(u.role);
+const canAi=u=>AI.canAi(u);
 const canBroadcast=u=>Boolean(u&&(u.role==='superadmin'||(u.role==='admin'&&u.can_broadcast)));
 const staffIds=async()=>(await q(`select tg_id from users where role in ${STAFF}`)).rows.map(r=>r.tg_id);
 const send=(id,t,kb)=>bot.telegram.sendMessage(id,t,{parse_mode:'HTML',...(kb||{})}).catch(e=>console.error('send',id,e.message));
@@ -38,7 +39,7 @@ const T={
   ageMsg:(id,age)=>`🔞 Buyurtma #${id} tarkibida ${age} yoshdan oshganlarga sotiladigan mahsulot bor.\nSiz ${age} yoshdan oshganingizni tasdiqlaysizmi?`,
   ageYes:age=>`✅ Ha, ${age} dan oshganman`,
   ageNo:"❌ Yo'q",
-  subMsg:(id,lines)=>`🔁 Buyurtma #${id}: ba'zi mahsulot qolmagan, almashtirishni taklif qilamiz:\n${lines}\n\nRozimisiz?`,
+  subMsg:(id,lines)=>`🔁 Buyurtma #${id}: ba'zi mahsulot qolmagan, almashtirishni taklif qilhamiz:\n${lines}\n\nRozimisiz?`,
   subNo:'➖ Shunsiz davom etish',
   editOk:id=>`✏️ Buyurtma #${id}: o'zgartirishga ruxsat berildi. Ilovada tahrirlang.`,
   editNo:id=>`Buyurtma #${id}: o'zgartirishga ruxsat berilmadi.`
@@ -74,6 +75,7 @@ const menu=async(ctx,u)=>{
  const l=tr(u?.lang);
  const rows=[];
  if(process.env.WEBAPP_URL)rows.push([Markup.button.webApp(l.openBtn,process.env.WEBAPP_URL)]);
+ if(canAi(u))rows.push([Markup.button.callback('🤖 AI Yordamchi','ai:help')]);
  if(canBroadcast(u))rows.push([Markup.button.callback('📣 Yangilik / Xabar yuborish','bc:start')]);
  await ctx.reply(l.welcome(u?.role),Markup.removeKeyboard());
  return ctx.reply(l.openPrompt,rows.length?Markup.inlineKeyboard(rows):undefined);
@@ -235,6 +237,69 @@ bot.action(/^s:(yes|no):(\d+)$/,guard(async ctx=>{await O.subAnswer(ctx.from.id,
 bot.action(/^e:(ok|no):(\d+)$/,guard(async ctx=>{const u=await me(ctx.from.id);if(!isStaff(u))return ctx.answerCbQuery("Ruxsat yo'q");await O.editDecide(u.tg_id,Number(ctx.match[2]),ctx.match[1]==='ok');await ctx.editMessageReplyMarkup().catch(()=>{});await ctx.answerCbQuery('Tayyor')}));
 bot.action(/^p:(ok|no):(\d+)$/,guard(async ctx=>{const u=await me(ctx.from.id);if(!u||!['admin','superadmin'].includes(u.role))return ctx.answerCbQuery("Ruxsat yo'q");
  await O.resolveChange(u.tg_id,Number(ctx.match[2]),ctx.match[1]==='ok');await ctx.editMessageReplyMarkup().catch(()=>{});await ctx.answerCbQuery('Tayyor')}));
+/* AI Assistant in Bot (only superadmin + selected admins via can_ai) */
+const AI_ADMIN_HELP="🤖 <b>Admin AI Yordamchi</b>\n\nMenga oddiy matn yoki 🎤 <b>ovozli xabar</b> yuboring, masalan:\n• <i>Bugungi savdo qancha, top mahsulotlar?</i>\n• <i>Olmani Meva katalogida 3-o'ringa qo'y</i>\n• <i>Bananga ertagacha 15% aksiya qil</i>\n• <i>Coca-Cola 1.5 L ni o'chir</i>\n• <i>Oxirgi buyurtmalarni ko'rsat</i>\n• <i>Barchaga: Ertaga 9:00 da ochilamiz deb xabar yubor</i>\n\nHar bir o'zgartirishdan oldin <b>Tasdiqlash</b> so'rayman. Suhbatni tozalash: /ai_reset";
+
+async function downloadTgAudio(ctx,fileObj){
+ if(!fileObj?.file_id)return null;
+ if(fileObj.file_size&&fileObj.file_size>2000000)throw O.bad('Ovozli xabar juda katta (max 2 MB)');
+ const link=await ctx.telegram.getFileLink(fileObj.file_id);
+ const res=await fetch(link.href,{signal:AbortSignal.timeout(15000)});
+ if(!res.ok)throw O.bad("Ovozli xabarni yuklab bo'lmadi");
+ const buf=Buffer.from(await res.arrayBuffer());
+ if(buf.length>2000000)throw O.bad('Ovozli xabar juda katta');
+ return{audioBase64:buf.toString('base64'),audioMime:fileObj.mime_type||'audio/ogg'};
+}
+async function runAdminAi(ctx,u,payload){
+ await ctx.sendChatAction('typing').catch(()=>{});
+ try{
+  const r=await AI.chatAdmin(u,payload);
+  if(r.pending){
+   const msg=`🤖 ${esc(r.reply)}\n\n<b>${esc(r.pending.summary)}</b>`;
+   return ctx.reply(msg,{parse_mode:'HTML',...Markup.inlineKeyboard([[Markup.button.callback('✅ Tasdiqlash',`ai:ok:${r.pending.id}`),Markup.button.callback('❌ Bekor qilish',`ai:no:${r.pending.id}`)]])});
+  }
+  return ctx.reply(esc(r.reply).slice(0,4000),{parse_mode:'HTML'});
+ }catch(e){return ctx.reply('⚠️ '+esc(e.message||'AI xatosi'),{parse_mode:'HTML'})}
+}
+
+bot.command('ai',async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canAi(u))return;
+ return ctx.reply(AI_ADMIN_HELP,{parse_mode:'HTML'});
+});
+bot.command('ai_reset',async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canAi(u))return;
+ AI.clearHistory(ctx.from.id);
+ return ctx.reply('🧹 AI suhbat tarixi tozalandi.');
+});
+bot.action('ai:help',guard(async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canAi(u))return ctx.answerCbQuery("Ruxsat yo'q",{show_alert:true});
+ await ctx.answerCbQuery().catch(()=>{});
+ return ctx.reply(AI_ADMIN_HELP,{parse_mode:'HTML'});
+}));
+bot.action(/^ai:ok:([a-f0-9]+)$/,guard(async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canAi(u))return ctx.answerCbQuery("Ruxsat yo'q",{show_alert:true});
+ await ctx.answerCbQuery('⏳ Bajarilmoqda...').catch(()=>{});
+ const r=await AI.confirmAction(u,ctx.match[1]);
+ await ctx.editMessageText(`✅ <b>Bajarildi:</b>\n${esc(r.message)}`,{parse_mode:'HTML'}).catch(()=>{});
+}));
+bot.action(/^ai:no:([a-f0-9]+)$/,guard(async ctx=>{
+ const u=await me(ctx.from.id);
+ AI.cancelAction(u||{tg_id:ctx.from.id},ctx.match[1]);
+ await ctx.answerCbQuery('Bekor qilindi').catch(()=>{});
+ await ctx.editMessageText('❌ Amal bekor qilindi.').catch(()=>{});
+}));
+
+bot.on(['voice','audio'],async ctx=>{
+ const u=await me(ctx.from.id);
+ if(!canAi(u)||bcDraft.get(bk(ctx.from.id))?.step==='await')return;
+ try{const aud=await downloadTgAudio(ctx,ctx.message.voice||ctx.message.audio);if(aud)return runAdminAi(ctx,u,aud)}
+ catch(e){return ctx.reply('⚠️ '+esc(e.message||'Ovoz xatosi'),{parse_mode:'HTML'})}
+});
+
 const LINK=/(https?:|www\.|t\.me|@\w{4,}|\.(com|uz|ru|org|net)\b)/i;
 bot.on(['text','photo','video','animation','video_note','document'],async ctx=>{const u=await me(ctx.from.id);
  const key=bk(ctx.from.id);
@@ -248,9 +313,17 @@ bot.on(['text','photo','video','animation','video_note','document'],async ctx=>{
   const kLabel=kind==='video'?'🎬 Video':kind==='photo'?'🖼 Rasm':'📝 Matn';
   return ctx.reply(`📣 <b>Xabar tayyor!</b>\nFormat: <b>${kLabel}</b>\nKimlarga yuborilsin?`,{parse_mode:'HTML',...bcConfirmKb(cnt,true,msgId,kind)});
  }
- if(isStaff(u)){const r=ctx.message.reply_to_message;if(!r)return;
-  const m=(await q('select user_id from support_map where chat_id=$1 and msg_id=$2',[ctx.chat.id,r.message_id])).rows[0];if(!m)return;
-  await bot.telegram.copyMessage(m.user_id,ctx.chat.id,ctx.message.message_id);return ctx.reply('✅ Yuborildi')}
+ if(isStaff(u)){
+  const r=ctx.message.reply_to_message;
+  if(r){
+   const m=(await q('select user_id from support_map where chat_id=$1 and msg_id=$2',[ctx.chat.id,r.message_id])).rows[0];
+   if(m){await bot.telegram.copyMessage(m.user_id,ctx.chat.id,ctx.message.message_id);return ctx.reply('✅ Yuborildi')}
+  }
+  if(canAi(u)&&ctx.message.text&&!ctx.message.text.trim().startsWith('/')){
+   return runAdminAi(ctx,u,{text:ctx.message.text});
+  }
+  return;
+ }
  if(!ctx.message.text&&!ctx.message.photo)return;
  const l=tr(u?.lang);
  if(!u)return ctx.reply(l.needStart);
