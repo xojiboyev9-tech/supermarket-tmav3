@@ -106,7 +106,8 @@ app.get('/api/sync/ping',syncAuth,wrap(async(req,res)=>{
  res.json({ok:true,totalNow:c.total_now||0,activeNow:c.active_now||0,setupNow:c.setup_now||0,lastSync:lsR.rows[0]?.value||null});
 }));
 app.post('/api/sync/products',syncAuth,wrap(async(req,res)=>{
- const out=await O.syncProducts(0,req.body.items,{autoActive:req.body.autoActive!==false,source:String(req.body.source||'pos').slice(0,30),runId:req.body.runId||null});
+ const b=req.body||{};
+ const out=await O.syncProducts(0,b.items,{autoActive:b.autoActive!==false,autoActivate:b.autoActivate,autoDeactivate:b.autoDeactivate,onlyInStockNew:b.onlyInStockNew===true,activateNew:b.activateNew===true,source:String(b.source||'pos').slice(0,30),runId:b.runId||null});
  bustPub();
  res.json({success:true,...out});
 }));
@@ -234,7 +235,7 @@ app.post('/api/categories',need(...ADM),wrap(async(req,res)=>{const n=String(req
  if(req.body.action==='delete')await q('delete from categories where name=$1',[n]);else await q('insert into categories(name) values($1) on conflict do nothing',[n]);
  bustPub();await audit(req.me.tg_id,'category.'+(req.body.action||'add'),'category',{n});res.json({success:true})}));
 app.put('/api/settings/delivery',need(...ADM),wrap(async(req,res)=>{const b=req.body,old=await getSetting('delivery');const v={...old,enabled:typeof b.enabled==='boolean'?b.enabled:old.enabled,minTotal:Math.max(0,Math.round(+b.minTotal||0)),maxKg:Math.max(0,Math.min(500,Math.round((+b.maxKg||0)*10)/10)),note:String(b.note||'').slice(0,200)};await setSetting('delivery',v);bustPub();await audit(req.me.tg_id,'settings.delivery','settings',{old,new:v});res.json(v)}));
-app.post('/api/admin/products/sync',need(...ADM),wrap(async(req,res)=>{const out=await O.syncProducts(req.me.tg_id,req.body.items,{autoActive:req.body.autoActive!==false,source:String(req.body.source||'csv').slice(0,30),runId:req.body.runId||null});bustPub();res.json({success:true,...out})}));
+app.post('/api/admin/products/sync',need(...ADM),wrap(async(req,res)=>{const b=req.body||{};const out=await O.syncProducts(req.me.tg_id,b.items,{autoActive:b.autoActive!==false,autoActivate:b.autoActivate,autoDeactivate:b.autoDeactivate,onlyInStockNew:b.onlyInStockNew===true,activateNew:b.activateNew===true,source:String(b.source||'csv').slice(0,30),runId:b.runId||null});bustPub();res.json({success:true,...out})}));
 app.put('/api/settings/support',need(...ADM),wrap(async(req,res)=>{const raw=String(req.body.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim();
  if(raw&&!/^[a-zA-Z0-9_]{3,32}$/.test(raw))return res.status(400).json({error:"Telegram username noto'g'ri (masalan: @tegen_support)"});
  const phone=String(req.body.phone||'').trim().slice(0,30);const v={username:raw,phone};await setSetting('support',v);bustPub();await audit(req.me.tg_id,'settings.support','settings',v);res.json(v)}));
