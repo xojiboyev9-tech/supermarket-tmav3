@@ -154,6 +154,10 @@ exports.syncProducts=async(actorId,rawItems,opts={})=>{
  }
  let updated=0,activated=0,deactivated=0,created=0,skipped=0;
  const autoActive=opts.autoActive!==false;
+ const autoActivate=opts.autoActivate!==undefined?!!opts.autoActivate:autoActive;
+ const autoDeactivate=opts.autoDeactivate!==undefined?!!opts.autoDeactivate:autoActive;
+ const onlyInStockNew=opts.onlyInStockNew===true;
+ const activateNew=opts.activateNew===true;
  const c=await pool.connect();
  try{
   await c.query('begin');
@@ -168,8 +172,14 @@ exports.syncProducts=async(actorId,rawItems,opts={})=>{
    if(match){
     const nextStock=stock!==null?stock:match.stock;
     let nextActive=match.active;
-    if(autoActive&&stock!==null&&!match.needs_setup){
-     nextActive=stock>0;
+    if(stock!==null){
+     if(!match.needs_setup){
+      if(stock>0&&autoActivate)nextActive=true;
+      else if(stock<=0&&autoDeactivate)nextActive=false;
+     }else{
+      if(stock<=0&&autoDeactivate)nextActive=false;
+      else if(stock>0&&activateNew)nextActive=true;
+     }
     }
     const changed=match.price!==price||Number(match.stock)!==Number(nextStock)||match.active!==nextActive||(barcode&&!match.barcode);
     if(changed){
@@ -182,13 +192,16 @@ exports.syncProducts=async(actorId,rawItems,opts={})=>{
     }
    }else{
     if(!name){skipped++;continue}
+    if(onlyInStockNew&&stock!==null&&stock<=0){skipped++;continue}
     const isW=raw.unit==='weight'||/(^|[\s.,(\/])(вес|весов|весовой|кг|kg)\.?$/i.test(name);
     const unit=isW?'weight':'piece';
+    const newActive=Boolean(activateNew&&(stock===null||stock>0));
     const ins=(await c.query(
-     "insert into products(name,price,unit,category,barcode,stock,active,priority,needs_setup) values($1,$2,$3,'Boshqa',$4,$5,false,3,true) returning id,barcode,name,price,stock,active,needs_setup",
-     [name,price,unit,barcode,stock]
+     "insert into products(name,price,unit,category,barcode,stock,active,priority,needs_setup) values($1,$2,$3,'Boshqa',$4,$5,$6,3,true) returning id,barcode,name,price,stock,active,needs_setup",
+     [name,price,unit,barcode,stock,newActive]
     )).rows[0];
     created++;
+    if(newActive)activated++;
     if(barcode)byBc.set(barcode,ins);
     byName.set(name.toLowerCase(),ins);
    }

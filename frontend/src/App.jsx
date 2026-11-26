@@ -1896,7 +1896,7 @@ function Products({d,act,say,onReload,initState,initCat}){
   const [addOpen,setAddOpen]=useState(false),[f,setF]=useState(e0),[ed,setEd]=useState(null),[anP,setAnP]=useState(null)
   const [q,setQ]=useState(''),[st,setSt]=useState(initState||'all'),[cat,setCat]=useState(initCat||''),[prio,setPrio]=useState(''),[fam,setFam]=useState('')
   const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
-  const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncSrc,setSyncSrc]=useState('csv'),[syncMeta,setSyncMeta]=useState(null),[syncProg,setSyncProg]=useState(''),[syncAuto,setSyncAuto]=useState(true),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
+  const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncSrc,setSyncSrc]=useState('csv'),[syncMeta,setSyncMeta]=useState(null),[syncProg,setSyncProg]=useState(''),[syncAct,setSyncAct]=useState(true),[syncDeact,setSyncDeact]=useState(true),[syncOnlyInStock,setSyncOnlyInStock]=useState(true),[syncActNew,setSyncActNew]=useState(false),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
   const dq=useDebounced(q)
   const go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
 
@@ -1955,7 +1955,7 @@ function Products({d,act,say,onReload,initState,initCat}){
       for(let i=0;i<batches;i++){
         if(batches>1)setSyncProg(`Sinxronlanmoqda… ${i+1}/${batches}`)
         const chunk=syncRows.slice(i*batchSize,(i+1)*batchSize)
-        const res=await api('/api/admin/products/sync','POST',{items:chunk,autoActive:syncAuto,source:syncSrc,runId})
+        const res=await api('/api/admin/products/sync','POST',{items:chunk,autoActivate:syncAct,autoDeactivate:syncDeact,onlyInStockNew:syncOnlyInStock,activateNew:syncActNew,source:syncSrc,runId})
         agg.total+=res.total||0;agg.updated+=res.updated||0;agg.activated+=res.activated||0
         agg.deactivated+=res.deactivated||0;agg.created+=res.created||0;agg.skipped+=res.skipped||0
         agg.activeNow=res.activeNow??agg.activeNow;agg.setupNow=res.setupNow??agg.setupNow
@@ -2045,10 +2045,24 @@ function Products({d,act,say,onReload,initState,initCat}){
               </div>)}
               {syncRows.length>4&&<div className="m">… va yana {(syncRows.length-4).toLocaleString('ru-RU')} ta mahsulot</div>}
             </div>
-            <label className="row" style={{margin:'0 0 8px'}}>
-              <span style={{fontSize:12.5}}>Qoldiq &gt; 0 → Faol, 0 → Nofaol</span>
-              <input type="checkbox" checked={syncAuto} onChange={e=>setSyncAuto(e.target.checked)}/>
-            </label>
+            <div style={{background:'#fff',borderRadius:12,padding:'6px 10px',marginBottom:8,border:'1px solid var(--bd)'}}>
+              <label className="row" style={{margin:'4px 0'}}>
+                <span style={{fontSize:12.5}}>✅ Qoldig'i &gt; 0 → Faol qilish</span>
+                <input type="checkbox" checked={syncAct} onChange={e=>setSyncAct(e.target.checked)}/>
+              </label>
+              <label className="row" style={{margin:'4px 0'}}>
+                <span style={{fontSize:12.5}}>⛔ Qoldig'i = 0 → Nofaol qilish</span>
+                <input type="checkbox" checked={syncDeact} onChange={e=>setSyncDeact(e.target.checked)}/>
+              </label>
+              <label className="row" style={{margin:'4px 0'}}>
+                <span style={{fontSize:12.5}}>📦 Yangi tovarlarda faqat qoldig'i &gt; 0 larini olish</span>
+                <input type="checkbox" checked={syncOnlyInStock} onChange={e=>setSyncOnlyInStock(e.target.checked)}/>
+              </label>
+              <label className="row" style={{margin:'4px 0'}}>
+                <span style={{fontSize:12.5}}>🚀 Yangi tovarlarni darhol Faol chiqarish</span>
+                <input type="checkbox" checked={syncActNew} onChange={e=>setSyncActNew(e.target.checked)}/>
+              </label>
+            </div>
             <button className="btn s" style={{width:'100%'}} disabled={syncBusy} onClick={runSync}>
               {syncBusy?(syncProg||'Sinxronlanmoqda…'):`🔄 Sinxronlash (${syncRows.length.toLocaleString('ru-RU')} ta)`}
             </button>
