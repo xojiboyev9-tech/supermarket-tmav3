@@ -90,12 +90,23 @@ async function getPub(){
 }
 
 /* External One-Way POS Sync Endpoint (Store 'Торговля' -> Mini App, protected by SYNC_API_KEY) */
-app.post('/api/sync/products',wrap(async(req,res)=>{
+const syncAuth=(req,res,next)=>{
  const key=String(process.env.SYNC_API_KEY||'').trim();
  if(!key)return res.status(503).json({error:'SYNC_API_KEY sozlanmagan'});
  const got=String(req.get('x-sync-key')||'');
  if(got.length!==key.length||!crypto.timingSafeEqual(Buffer.from(got),Buffer.from(key)))return res.status(401).json({error:"Kalit noto'g'ri"});
- const out=await O.syncProducts(0,req.body.items,{autoActive:req.body.autoActive!==false});
+ next();
+};
+app.get('/api/sync/ping',syncAuth,wrap(async(req,res)=>{
+ const [cR,lsR]=await Promise.all([
+  q("select count(*)::int total_now,count(*) filter(where active)::int active_now,count(*) filter(where needs_setup)::int setup_now from products"),
+  q("select value from settings where key='last_sync'")
+ ]);
+ const c=cR.rows[0]||{};
+ res.json({ok:true,totalNow:c.total_now||0,activeNow:c.active_now||0,setupNow:c.setup_now||0,lastSync:lsR.rows[0]?.value||null});
+}));
+app.post('/api/sync/products',syncAuth,wrap(async(req,res)=>{
+ const out=await O.syncProducts(0,req.body.items,{autoActive:req.body.autoActive!==false,source:String(req.body.source||'pos').slice(0,30),runId:req.body.runId||null});
  bustPub();
  res.json({success:true,...out});
 }));
@@ -125,13 +136,14 @@ app.use('/api',S.ipShield,auth,S.ddosGuard);
 
 app.get('/api/init',wrap(async(req,res)=>{
  const m=req.me,staff=STAFF.includes(m.role),isAdm=ADM.includes(m.role);
- const [pub,ordR,pcR,bcR,suR,ppR,rlR,crR]=await Promise.all([
+ const [pub,ordR,pcR,bcR,suR,ppR,lsR,rlR,crR]=await Promise.all([
   getPub(),
   q(`select o.*,coalesce((select json_agg(json_build_object('id',i.id,'name',i.name,'name_uz',p.name_uz,'unit',i.unit,'qty',i.qty,'ordered_sum',i.ordered_sum,'actual_sum',i.actual_sum,'product_id',i.product_id,'image',p.image,'unit_price',i.unit_price,'cur_price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'min_grams',p.min_grams,'min_sum',p.min_sum,'weight_g',p.weight_g,'priority',p.priority,'family',p.family,'age_min',p.age_min,'active',p.active,'category',p.category,'sub_name',i.sub_name,'sub_status',i.sub_status) order by i.id) from order_items i left join products p on p.id=i.product_id where i.order_id=o.id),'[]') items from orders o ${staff?'':'where user_id=$1'} order by id desc limit ${staff?200:50}`,staff?[]:[m.tg_id]),
   isAdm?q("select count(*)::int c from users where card_status='pending'"):null,
   isAdm?q('select count(*)::int c from blocked_users where expires_at is null or expires_at>now()'):null,
   isAdm?q('select count(*)::int c from products where needs_setup'):null,
   isAdm?q('select * from pending_changes order by id'):null,
+  isAdm?q("select value from settings where key='last_sync'"):null,
   m.role==='superadmin'?q("select tg_id,name,role,role_title,department,coalesce(can_broadcast,false) can_broadcast from users where role<>'user'"):null,
   m.role==='superadmin'?q("select value from settings where key='custom_roles'"):null
  ]);
@@ -143,6 +155,8 @@ app.get('/api/init',wrap(async(req,res)=>{
   pendingCardsCount:pcR?pcR.rows[0].c:0,
   blockedCount:bcR?bcR.rows[0].c:0,
   setupCount:suR?suR.rows[0].c:0,
+  lastSync:lsR?lsR.rows[0]?.value||null:null,
+  syncKeySet:isAdm?Boolean(String(process.env.SYNC_API_KEY||'').trim()):false,
   settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
   cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,orders:ordR.rows,
   pendingProducts:ppR?ppR.rows:[],
@@ -220,7 +234,7 @@ app.post('/api/categories',need(...ADM),wrap(async(req,res)=>{const n=String(req
  if(req.body.action==='delete')await q('delete from categories where name=$1',[n]);else await q('insert into categories(name) values($1) on conflict do nothing',[n]);
  bustPub();await audit(req.me.tg_id,'category.'+(req.body.action||'add'),'category',{n});res.json({success:true})}));
 app.put('/api/settings/delivery',need(...ADM),wrap(async(req,res)=>{const b=req.body,old=await getSetting('delivery');const v={...old,enabled:typeof b.enabled==='boolean'?b.enabled:old.enabled,minTotal:Math.max(0,Math.round(+b.minTotal||0)),maxKg:Math.max(0,Math.min(500,Math.round((+b.maxKg||0)*10)/10)),note:String(b.note||'').slice(0,200)};await setSetting('delivery',v);bustPub();await audit(req.me.tg_id,'settings.delivery','settings',{old,new:v});res.json(v)}));
-app.post('/api/admin/products/sync',need(...ADM),wrap(async(req,res)=>{const out=await O.syncProducts(req.me.tg_id,req.body.items,{autoActive:req.body.autoActive!==false});bustPub();res.json({success:true,...out})}));
+app.post('/api/admin/products/sync',need(...ADM),wrap(async(req,res)=>{const out=await O.syncProducts(req.me.tg_id,req.body.items,{autoActive:req.body.autoActive!==false,source:'csv'});bustPub();res.json({success:true,...out})}));
 app.put('/api/settings/support',need(...ADM),wrap(async(req,res)=>{const raw=String(req.body.username||'').trim().replace(/^https?:\/\/(www\.)?(t\.me|telegram\.me)\//i,'').replace(/^@+/,'').replace(/\/.*$/,'').trim();
  if(raw&&!/^[a-zA-Z0-9_]{3,32}$/.test(raw))return res.status(400).json({error:"Telegram username noto'g'ri (masalan: @tegen_support)"});
  const phone=String(req.body.phone||'').trim().slice(0,30);const v={username:raw,phone};await setSetting('support',v);bustPub();await audit(req.me.tg_id,'settings.support','settings',v);res.json(v)}));
