@@ -1152,12 +1152,7 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
         <BundleCarousel bundles={d.bundles} onOpen={setBdet} actionBtn={actionBtn}/>
       </>}
 
-      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say} beforeLast={F(d,'homeShelves')&&homeHits.length>0?<>
-        <div className="sec-head"><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
-        <div className="hrow shelf-row">
-          {homeHits.map(p=><ProductCard key={'hh:'+p.id} p={p} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
-        </div>
-      </>:null}/>
+      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
     </>:<>
       <div className="cat-bar">
         <button className="back-btn" aria-label="Back" onClick={()=>{if(favView){setFavView(false)}else if(dq){setQ('')}else if(fam&&!cat){setFam('')}else if(parentObj){setCat(parentObj.name)}else{setCat('');setFam('')}}}>
@@ -1580,11 +1575,27 @@ function OrderTracker({status}){
   </div>
 }
 
-function Orders({d,act,onReorder}){
+function Orders({d,act,onReorder,cart={},setCart,favs=[],toggleFav,onReload,say}){
   const {t,so}=useLang()
-  const [ed,setEd]=useState(null),[wsh,setWsh]=useState(null)
+  const [ed,setEd]=useState(null),[wsh,setWsh]=useState(null),[sh,setSh]=useState(null),[det,setDet]=useState(null)
   const mine=d.orders.filter(o=>o.user_id==d.user.telegramId),post=(o,p,b,m)=>act(()=>api(`/api/orders/${o.id}/${p}`,'POST',b),m)
-  if(!mine.length)return <div className="empty-box" style={{minHeight:300}}><span>📦</span><b>{t("Buyurtmalar yo'q")}</b></div>
+  const homeHits=d.homeHits||[],favSet=new Set(favs)
+  const put=(p,v)=>{if(!setCart)return;haptic('light');setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})}
+  const actionBtn=p=>{
+    const it=cart[keyOf(p)],st=e=>e.stopPropagation()
+    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);haptic('light');setSh(p)}}>{it?so(lsum(p,it)):'+ '+t("Savatga")}</button>
+    if(it)return <QtyControl qty={it.qty} max={500} onChange={n=>put(p,n>0?{qty:n}:null)}/>
+    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>+ {t("Savatga")}</button>
+  }
+  const hitsBlock=F(d,'homeShelves')&&homeHits.length>0&&<>
+    <div className="sec-head" style={{marginTop:14}}><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
+    <div className="hrow shelf-row">
+      {homeHits.map(p=><ProductCard key={'ohh:'+p.id} p={p} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={prod=>{haptic('sel');setDet(prod)}} actionBtn={actionBtn} shelf/>)}
+    </div>
+    {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}}/>}
+    {det&&<Detail key={det.id} p={det} d={d} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh} onReload={onReload} say={say}/>}
+  </>
+  if(!mine.length)return <><div className="empty-box" style={{minHeight:220}}><span>📦</span><b>{t("Buyurtmalar yo'q")}</b></div>{hitsBlock}</>
 
   const startEdit=o=>{
     const ch={}
@@ -1652,6 +1663,7 @@ function Orders({d,act,onReorder}){
         :<button className="btn s" onClick={()=>startEdit(o)}>✏️ Tahrirlash (ruxsat berilgan)</button>)}
     </div>
   })}
+  {hitsBlock}
   {wsh&&<WeightSheet
     p={{id:wsh.item.product_id,name:wsh.item.name,name_uz:wsh.item.name_uz,price:Number(wsh.item.unit_price)||Number(wsh.item.cur_price)||1000,unit:'weight',min_grams:Number(wsh.item.min_grams)||0,min_sum:Number(wsh.item.min_sum)||0}}
     cur={wsh.cur?.remove?null:wsh.cur}
@@ -3209,7 +3221,7 @@ export default function App(){
   const entries=Object.values(cart)
   const n=entries.length
   const cartTotal=entries.reduce((s,v)=>s+lsum(v.p,v),0)
-  const showBar=n>0&&(tab==='shop'||tab==='catalog'||tab==='promo')
+  const showBar=n>0&&(tab==='shop'||tab==='catalog'||tab==='promo'||tab==='orders')
   const tabs=[['shop',"Do'kon"],['catalog','Katalog'],...(F(d,'promoTab')?[['promo','Aksiya']]:[]),['cart','Savat'],['orders','Buyurtma'],['profile','Profil']]
   const activePreset=F(d,'animation')?(animOverride??(d.settings.animation?.preset||'none')):'none'
   const showAiBtn=F(d,'ai')&&(d.role==='superadmin'||(d.role==='admin'&&!!d.user?.canAi))
@@ -3237,7 +3249,7 @@ export default function App(){
       {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}} onReload={load} say={say}/>}
       {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart} favs={favs} toggleFav={toggleFav} onReload={load} say={say}/>}
       {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')} onReload={load}/>}
-      {tab==='orders'&&<Orders d={d} act={act} onReorder={o=>{const next={...cart};let added=0;for(const i of (o.items||[])){if(!i.product_id||i.active===false)continue;const p={id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0};if(!p.price)continue;if(p.unit==='piece'){next[keyOf(p)]={p,qty:Math.max(1,Math.min(500,Math.round(Number(i.qty)||1)))};added++}else if(p.unit==='weight'&&!(p.min_grams>0)){const ms=Math.max(1000,Number(p.min_sum)||0);next[keyOf(p)]={p,sum:Math.max(ms,Math.round(Number(i.ordered_sum)||ms))};added++}}if(!added){say(t("Bu buyurtmada faol mahsulot topilmadi"));return}setCart(next);say(t("Savatga qo'shildi ✅"));setTab('cart')}}/>}
+      {tab==='orders'&&<Orders d={d} act={act} cart={cart} setCart={setCart} favs={favs} toggleFav={toggleFav} onReload={load} say={say} onReorder={o=>{const next={...cart};let added=0;for(const i of (o.items||[])){if(!i.product_id||i.active===false)continue;const p={id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0};if(!p.price)continue;if(p.unit==='piece'){next[keyOf(p)]={p,qty:Math.max(1,Math.min(500,Math.round(Number(i.qty)||1)))};added++}else if(p.unit==='weight'&&!(p.min_grams>0)){const ms=Math.max(1000,Number(p.min_sum)||0);next[keyOf(p)]={p,sum:Math.max(ms,Math.round(Number(i.ordered_sum)||ms))};added++}}if(!added){say(t("Bu buyurtmada faol mahsulot topilmadi"));return}setCart(next);say(t("Savatga qo'shildi ✅"));setTab('cart')}}/>}
       {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act} onReload={load}/>}
       {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} say={say} onReload={load} onPreviewAnim={p=>setAnimOverride(p)}/>}
 
