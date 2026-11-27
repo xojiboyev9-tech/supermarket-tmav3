@@ -1173,7 +1173,7 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
         <BundleCarousel bundles={d.bundles} onOpen={setBdet} actionBtn={actionBtn}/>
       </>}
 
-      <div className="bento-sec"><div className="bento-sec-head"><h2 onClick={()=>{goTab&&goTab('catalog');scrollTo({top:0})}}>{t("Katalog")}</h2>{goTab&&<button type="button" className="sec-link" onClick={()=>{goTab('catalog');scrollTo({top:0})}}>{t("Hammasi")} →</button>}</div><BentoTileGrid items={tree.roots} tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/></div>
+      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
 
       {F(d,'homeShelves')&&homeHits.length>0&&<>
         <div className="sec-head"><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
@@ -2571,8 +2571,8 @@ function Cats({d,act,onReload}){
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/>
     <input className="in" placeholder="Название (русский)" value={f.name_ru||''} onChange={e=>setF({...f,name_ru:e.target.value})}/>
     <CatPicker value={f.parent||''} cats={d.cats} includeNone noneLabel={t("Asosiy kategoriya (yo'q)")} maxDepth={2} title="Ota kategoriya" onReload={onReload} onChange={v=>setF({...f,parent:v})}/>
-    <ModernSelect value={f.section||''} options={TILE_SIZES} onChange={v=>setF({...f,section:v})} title="Karta kengligi (Zik-zak)"/>
-    <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label><input className="in" style={{width:120,margin:0}} type="text" inputMode="numeric" placeholder="Tartib (1=birinchi)" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
+    {f.parent&&<ModernSelect value={f.section||''} options={TILE_SIZES} onChange={v=>setF({...f,section:v})} title="Karta kengligi (Zik-zak)"/>}
+    <div className="gap" style={{alignItems:'center',marginBottom:8}}>{f.parent&&<>{f.image&&<img src={f.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setF)}/></label></>}<input className="in" style={{width:140,margin:0}} type="text" inputMode="numeric" placeholder="Tartib (1=birinchi)" value={f.sort||''} onChange={e=>setF({...f,sort:digits(e.target.value)})}/></div>
     <button className="btn s" style={{marginBottom:8}} onClick={()=>act(async()=>{await api('/api/cats','POST',f);setF(e0)},'Saqlandi')}>+ Kategoriya</button>
 
     {tree.flat.map(c=>{
@@ -2599,11 +2599,10 @@ function Cats({d,act,onReload}){
           <input className="in" placeholder="Nomi (o'zbekcha)" value={ed.name} onChange={e=>setEd({...ed,name:e.target.value})}/>
           <input className="in" placeholder="Название (русский)" value={ed.name_ru||''} onChange={e=>setEd({...ed,name_ru:e.target.value})}/>
           <CatPicker value={ed.parent||''} cats={d.cats} includeNone noneLabel={t("Asosiy kategoriya (yo'q)")} maxDepth={2} exclude={x=>x.name===c.name||x.parent===c.name} title="Ota kategoriya" onReload={onReload} onChange={v=>setEd({...ed,parent:v})}/>
-          <ModernSelect value={ed.section||''} options={TILE_SIZES} onChange={v=>setEd({...ed,section:v})} title="Karta kengligi (Zik-zak)"/>
+          {ed.parent&&<ModernSelect value={ed.section||''} options={TILE_SIZES} onChange={v=>setEd({...ed,section:v})} title="Karta kengligi (Zik-zak)"/>}
           <div className="gap" style={{alignItems:'center',marginBottom:8}}>
-            {ed.image&&<img src={ed.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
-            <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setEd)}/></label>
-            <input className="in" style={{width:120,margin:0}} type="text" inputMode="numeric" placeholder="Tartib (1=birinchi)" value={ed.sort||''} onChange={e=>setEd({...ed,sort:digits(e.target.value)})}/>
+            {ed.parent&&<>{ed.image&&<img src={ed.image} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={pick(setEd)}/></label>{ed.image&&<button type="button" className="btn s g" onClick={()=>setEd({...ed,image:''})}>✕</button>}</>}
+            <input className="in" style={{width:140,margin:0}} type="text" inputMode="numeric" placeholder="Tartib (1=birinchi)" value={ed.sort||''} onChange={e=>setEd({...ed,sort:digits(e.target.value)})}/>
           </div>
           <div className="gap">
             <button className="btn s" onClick={()=>act(async()=>{await api('/api/cats','POST',ed);setEd(null)},'Saqlandi')}>{t("Saqlash")}</button>
