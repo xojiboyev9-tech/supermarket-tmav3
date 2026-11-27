@@ -679,21 +679,23 @@ function CatSizeBtn({c,onReload,say}){
   </button>
 }
 
-function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel,exclude,maxDepth,title,style}){
+function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel,exclude,maxDepth,title,style,compact}){
   const {t,cn}=useLang()
   const tree=buildCatTree(cats||[])
+  const [open,setOpen]=useState(false),[sq,setSq]=useState(''),[adding,setAdding]=useState(false)
   const [nUz,setNUz]=useState(''),[nRu,setNRu]=useState(''),[nPar,setNPar]=useState(''),[nImg,setNImg]=useState(''),[busy,setBusy]=useState(false),[err,setErr]=useState('')
-  const flat=tree.flat.filter(c=>(!exclude||!exclude(c))&&(maxDepth===undefined||c.depth<maxDepth))
-  const options=[
-    ...(includeNone?[{value:'',label:noneLabel||t("Asosiy kategoriya (yo'q)"),icon:'🗂'}]:[]),
-    ...flat.map(c=>({
-      value:c.name,
-      label:cn(c),
-      sub:c.parent?`↳ ${c.parent}`:(c.name_ru&&cn(c)!==c.name_ru?c.name_ru:''),
-      icon:EMO[c.name]||(c.depth?'📁':'🛒'),
-      indent:c.depth
-    }))
-  ]
+  const curObj=value?tree.byName.get(value):null
+  const curParent=curObj?.parent||((curObj&&!curObj.parent)?curObj.name:'')
+  const [exp,setExp]=useState('')
+  useEffect(()=>{if(open)setExp(curParent||'')},[open,curParent])
+
+  const roots=tree.roots.filter(c=>!exclude||!exclude(c))
+  const q=sq.trim().toLowerCase()
+  const match=c=>!q||c.name.toLowerCase().includes(q)||(c.name_ru||'').toLowerCase().includes(q)||cn(c).toLowerCase().includes(q)
+
+  const close=()=>{setOpen(false);setSq('');setAdding(false)}
+  const pick=val=>{haptic('sel');onChange(val);close()}
+
   const pickImg=async e=>{
     const file=e.target.files?.[0];e.target.value=''
     if(!file)return
@@ -701,43 +703,116 @@ function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel
     try{setNImg(await upload(file))}catch(er){setErr(er.message)}
     setBusy(false)
   }
-  const createCat=async(closeForm,pick)=>{
+  const createCat=async()=>{
     const nm=nUz.trim();if(!nm){setErr('Nomini kiriting');return}
     setBusy(true);setErr('')
     try{
       await api('/api/cats','POST',{name:nm,name_ru:nRu.trim(),parent:nPar||'',image:nImg||null})
       if(onReload)await onReload()
-      setNUz('');setNRu('');setNPar('');setNImg('')
-      closeForm();pick(nm)
+      setNUz('');setNRu('');setNPar('');setNImg('');setAdding(false)
+      pick(nm)
     }catch(e){setErr(e.message)}
     setBusy(false)
   }
-  return <ModernSelect
-    value={value}
-    options={options}
-    onChange={onChange}
-    title={title||t("Katalogni tanlang")}
-    placeholder={t("Katalogni tanlang")}
-    style={style}
-    searchable={options.length>=5}
-    createLabel={canCreate?t("Yangi katalog qo'shish"):undefined}
-    renderCreate={canCreate?(closeForm,pick)=><>
-      <div className="pick-create-h"><span>➕ {t("Yangi katalog qo'shish")}</span><button type="button" className="sec-link" style={{fontSize:12}} onClick={closeForm}>✕</button></div>
-      <input className="in" placeholder="Nomi (o'zbekcha)" value={nUz} onChange={e=>setNUz(e.target.value)}/>
-      <input className="in" placeholder="Название (русский, ixtiyoriy)" value={nRu} onChange={e=>setNRu(e.target.value)}/>
-      <div className="gap" style={{alignItems:'center',marginBottom:8}}>
-        {nImg&&<img src={nImg} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
-        <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={pickImg}/></label>
-        {nImg&&<button type="button" className="btn s g" onClick={()=>setNImg('')}>✕</button>}
+  const curLabel=value?(curObj?(curObj.parent?`${curObj.parent} › ${cn(curObj)}`:cn(curObj)):value):(includeNone?(noneLabel||t("Asosiy kategoriya (yo'q)")):t("Katalogni tanlang"))
+  const curIcon=value?(EMO[value]||(curObj?.parent?'📁':'🛒')):(includeNone?'🗂':'📁')
+
+  return <>
+    <button type="button" className={'msel'+(compact?' compact':'')} style={style} onClick={()=>setOpen(true)}>
+      <span className="msel-l">
+        <span className="msel-ico">{curIcon}</span>
+        <span className={'msel-txt'+(!value&&!includeNone?' msel-ph':'')}>{curLabel}</span>
+      </span>
+      <span className="msel-arr"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+    </button>
+    {open&&<div className="sheet picker-sheet" onClick={close}>
+      <div className="picker-box" onClick={e=>e.stopPropagation()}>
+        <div className="sheet-handle"/>
+        <div className="pick-head">
+          <h2>{title||t("Katalogni tanlang")}</h2>
+          <button type="button" className="pick-close" onClick={close}>✕</button>
+        </div>
+        <input className="in" style={{marginBottom:8}} placeholder="🔍 Qidirish..." value={sq} onChange={e=>setSq(e.target.value)}/>
+        <div className="pick-list ios-cat-list">
+          {includeNone&&(!q||String(noneLabel||'').toLowerCase().includes(q))&&<div className={'pick-row compact'+(value===''?' on':'')} onClick={()=>pick('')}>
+            <div className="pick-row-l">
+              <span className="pick-ico">🗂</span>
+              <div className="pick-lbl"><b>{noneLabel||t("Asosiy kategoriya (yo'q)")}</b></div>
+            </div>
+            <span className="pick-chk">{value===''?'✓':''}</span>
+          </div>}
+          {roots.map(r=>{
+            const kids=(maxDepth===1?[]:tree.childrenOf(r.name)).filter(k=>!exclude||!exclude(k))
+            const visKids=q?(match(r)?kids:kids.filter(match)):kids
+            if(q&&!match(r)&&!visKids.length)return null
+            const isOpen=q?visKids.length>0:(exp===r.name)
+            const rootSel=value===r.name
+            const hasSelKid=kids.some(k=>k.name===value)
+            return <div key={r.name} className={'ios-cat-group'+(isOpen?' open':'')}>
+              <div className={'pick-row compact root'+(rootSel?' on':(hasSelKid?' has-sel':''))} onClick={()=>{
+                if(kids.length>0){haptic('sel');setExp(isOpen?'':r.name)}
+                else pick(r.name)
+              }}>
+                <div className="pick-row-l">
+                  <span className="pick-ico">{EMO[r.name]||'🛒'}</span>
+                  <div className="pick-lbl">
+                    <b>{cn(r)}</b>
+                    {r.name_ru&&cn(r)!==r.name_ru&&<small>{r.name_ru}</small>}
+                  </div>
+                </div>
+                <div className="pick-r">
+                  {kids.length>0&&<span className="ios-cat-cnt">{kids.length}</span>}
+                  {kids.length>0
+                    ?<span className={'ios-chev'+(isOpen?' open':'')}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                    :<span className="pick-chk">{rootSel?'✓':''}</span>}
+                </div>
+              </div>
+              {isOpen&&visKids.length>0&&<div className="ios-sub-wrap">
+                {visKids.map(k=>{
+                  const sel=value===k.name
+                  return <div key={k.name} className={'pick-row compact sub'+(sel?' on':'')} onClick={()=>pick(k.name)}>
+                    <div className="pick-row-l">
+                      <span className="pick-ico">{k.image?<img src={k.image} alt="" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:8}}/>:'📁'}</span>
+                      <div className="pick-lbl">
+                        <b>{cn(k)}</b>
+                        {k.name_ru&&cn(k)!==k.name_ru&&<small>{k.name_ru}</small>}
+                      </div>
+                    </div>
+                    <span className="pick-chk">{sel?'✓':''}</span>
+                  </div>
+                })}
+                {maxDepth!==1&&<div className={'pick-row compact sub'+(rootSel?' on':'')} onClick={()=>pick(r.name)}>
+                  <div className="pick-row-l">
+                    <span className="pick-ico">{EMO[r.name]||'🗂'}</span>
+                    <div className="pick-lbl"><b>{cn(r)} (asosiy bo'lim)</b></div>
+                  </div>
+                  <span className="pick-chk">{rootSel?'✓':''}</span>
+                </div>}
+              </div>}
+            </div>
+          })}
+        </div>
+        {canCreate&&(!adding
+          ?<button type="button" className="pick-add-btn" onClick={()=>{setNPar(exp||'');setAdding(true)}}>➕ {t("Yangi katalog qo'shish")}</button>
+          :<div className="pick-create">
+            <div className="pick-create-h"><span>➕ {t("Yangi katalog qo'shish")}</span><button type="button" className="sec-link" style={{fontSize:12}} onClick={()=>setAdding(false)}>✕</button></div>
+            <input className="in" placeholder="Nomi (o'zbekcha)" value={nUz} onChange={e=>setNUz(e.target.value)}/>
+            <input className="in" placeholder="Название (русский, ixtiyoriy)" value={nRu} onChange={e=>setNRu(e.target.value)}/>
+            {nPar&&<div className="gap" style={{alignItems:'center',marginBottom:8}}>
+              {nImg&&<img src={nImg} style={{width:44,height:44,borderRadius:10,objectFit:'cover'}}/>}
+              <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={pickImg}/></label>
+              {nImg&&<button type="button" className="btn s g" onClick={()=>setNImg('')}>✕</button>}
+            </div>}
+            {tree.roots.length>0&&<div className="chips" style={{marginBottom:8}}>
+              <button type="button" className={'chip'+(!nPar?' on':'')} onClick={()=>setNPar('')}>🗂 Asosiy</button>
+              {tree.roots.slice(0,12).map(r=><button key={r.name} type="button" className={'chip'+(nPar===r.name?' on':'')} onClick={()=>setNPar(nPar===r.name?'':r.name)}>{(EMO[r.name]||'')+' '+cn(r)}</button>)}
+            </div>}
+            {err&&<div style={{color:'#BE123C',fontSize:12,fontWeight:700,marginBottom:6}}>{err}</div>}
+            <button type="button" className="btn s" style={{width:'100%'}} disabled={busy} onClick={createCat}>{busy?'Saqlanmoqda…':'✓ Yaratish va tanlash'}</button>
+          </div>)}
       </div>
-      {tree.roots.length>0&&<div className="chips" style={{marginBottom:8}}>
-        <button type="button" className={'chip'+(!nPar?' on':'')} onClick={()=>setNPar('')}>🗂 Asosiy</button>
-        {tree.roots.slice(0,10).map(r=><button key={r.name} type="button" className={'chip'+(nPar===r.name?' on':'')} onClick={()=>setNPar(nPar===r.name?'':r.name)}>{(EMO[r.name]||'')+' '+cn(r)}</button>)}
-      </div>}
-      {err&&<div style={{color:'#BE123C',fontSize:12,fontWeight:700,marginBottom:6}}>{err}</div>}
-      <button type="button" className="btn s" style={{width:'100%'}} disabled={busy} onClick={()=>createCat(closeForm,pick)}>{busy?'Saqlanmoqda…':'✓ Yaratish va tanlash'}</button>
-    </>:undefined}
-  />
+    </div>}
+  </>
 }
 
 function RolePicker({value,customRoles,onSelect,onReload,style}){
@@ -2209,33 +2284,38 @@ function ProductFields({f,setF,dept,tree,cats,families,onReload,onPick,onSave,on
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. summa (so'm, standart 30000)" value={f.min_sum||''} onChange={e=>setF({...f,min_sum:digits(e.target.value)})}/>
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. gramm (ixtiyoriy)" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>
     </div>:<input className="in" type="text" inputMode="numeric" placeholder="Og'irligi (gramm, yetkazish limiti uchun — ixtiyoriy)" value={f.weight_g||''} onChange={e=>setF({...f,weight_g:digits(e.target.value)})}/>}
-    <div className="sale-box">
-      <div className="sale-box-t">
-        <span>🔥 {t("Aksiya")} (ixtiyoriy)</span>
-        {(f.sale_price||f.sale_until)&&<button type="button" className="sec-link" style={{fontSize:11.5}} onClick={()=>setF({...f,sale_price:'',sale_until:''})}>{t("Tozalash")}</button>}
-      </div>
-      <input className="in" type="text" inputMode="numeric" placeholder={`${t("Aksiya narxi")} (masalan: 15000)`} value={f.sale_price||''} onChange={e=>setF({...f,sale_price:digits(e.target.value)})}/>
-      {pct>0&&<div className="sale-save-pill">🏷️ <s>{so(pr)}</s> → <b>{so(sp)}</b> <span>(−{pct}%)</span></div>}
-      {sp>0&&<SaleTimePicker value={f.sale_until||''} onChange={v=>setF({...f,sale_until:v})}/>}
+    <div className="gap" style={{marginBottom:8}}>
+      {!dept&&<CatPicker style={{flex:1.7}} value={f.category} cats={catList} canCreate onReload={onReload} onChange={v=>setF({...f,category:v})}/>}
+      <ModernSelect style={{flex:1}} value={String(f.age_min||0)} options={ageOpts} onChange={v=>setF({...f,age_min:Number(v)||0})} title="Yosh cheklovi"/>
     </div>
-    <div style={{marginBottom:10}}>
-      <div className="m" style={{marginBottom:4,fontWeight:600}}>🏆 Ustuvorlik / O'rin (1 = eng birinchi · 5 = oxirgi)</div>
-      <div className="prio-bar">
+    <div className="row" style={{margin:'2px 0 8px'}}>
+      <span className="m" style={{fontWeight:700}}>🏆 O'rin:</span>
+      <div className="prio-bar compact" style={{flex:1}}>
         {[[1,'1 🔥'],[2,'2 ⭐'],[3,'3'],[4,'4'],[5,'5']].map(([n,lbl])=>
           <button key={n} type="button" className={prio===n?'on':''} onClick={()=>setF({...f,priority:n})}>{lbl}</button>)}
       </div>
     </div>
-    <div style={{marginBottom:8}}>
-      <input className="in" style={{marginBottom:6}} placeholder={`👨‍👩‍👧‍👦 ${t("Oila / Guruh")} (masalan: Kundalik ehtiyoj)`} value={f.family||''} onChange={set('family')}/>
-      <div className="chips" style={{marginBottom:2}}>
-        {famOpts.map(fm=><button key={fm} type="button" className={'chip'+(f.family===fm?' on':'')} onClick={()=>setF({...f,family:f.family===fm?'':fm})}>{t(fm)}</button>)}
+    <details className="ios-fold" open={Boolean(f.sale_price||f.family||f.description)}>
+      <summary>🔥 Aksiya · 👨‍👩‍👧‍👦 Guruh · 📝 Tavsif {sp>0?`(${so(sp)})`:''}</summary>
+      <div style={{marginTop:8}}>
+        <div className="sale-box" style={{marginBottom:8}}>
+          <div className="sale-box-t">
+            <span>🔥 {t("Aksiya")} (ixtiyoriy)</span>
+            {(f.sale_price||f.sale_until)&&<button type="button" className="sec-link" style={{fontSize:11.5}} onClick={()=>setF({...f,sale_price:'',sale_until:''})}>{t("Tozalash")}</button>}
+          </div>
+          <input className="in" type="text" inputMode="numeric" placeholder={`${t("Aksiya narxi")} (masalan: 15000)`} value={f.sale_price||''} onChange={e=>setF({...f,sale_price:digits(e.target.value)})}/>
+          {pct>0&&<div className="sale-save-pill">🏷️ <s>{so(pr)}</s> → <b>{so(sp)}</b> <span>(−{pct}%)</span></div>}
+          {sp>0&&<SaleTimePicker value={f.sale_until||''} onChange={v=>setF({...f,sale_until:v})}/>}
+        </div>
+        <div style={{marginBottom:6}}>
+          <input className="in" style={{marginBottom:6}} placeholder={`👨‍👩‍👧‍👦 ${t("Oila / Guruh")} (masalan: Kundalik ehtiyoj)`} value={f.family||''} onChange={set('family')}/>
+          <div className="chips" style={{marginBottom:2}}>
+            {famOpts.map(fm=><button key={fm} type="button" className={'chip'+(f.family===fm?' on':'')} onClick={()=>setF({...f,family:f.family===fm?'':fm})}>{t(fm)}</button>)}
+          </div>
+        </div>
+        <textarea className="in" rows={2} placeholder="Tavsif (ixtiyoriy)" value={f.description||''} onChange={set('description')}/>
       </div>
-    </div>
-    <div className="gap">
-      {!dept&&<CatPicker style={{flex:1.7}} value={f.category} cats={catList} canCreate onReload={onReload} onChange={v=>setF({...f,category:v})}/>}
-      <ModernSelect style={{flex:1}} value={String(f.age_min||0)} options={ageOpts} onChange={v=>setF({...f,age_min:Number(v)||0})} title="Yosh cheklovi"/>
-    </div>
-    <textarea className="in" rows={2} placeholder="Tavsif (ixtiyoriy)" value={f.description||''} onChange={set('description')}/>
+    </details>
     <div className="gap" style={{alignItems:'center',marginBottom:8}}>
       {f.image&&<img src={f.image} style={{width:52,height:52,borderRadius:12,objectFit:'cover'}}/>}
       <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={onPick}/></label>
@@ -2515,8 +2595,13 @@ function Products({d,act,say,onReload,initState,initCat}){
             {p.family&&<span className="badge gray" style={{marginLeft:6}}>{t(p.family)}</span>}
             {p.name_uz&&<div className="m">{p.name_uz}</div>}
             {p.age_min>0&&<span className="age2">{p.age_min}+</span>}
-            <div className="m">
-              {p.category} · {onS?<><s style={{marginRight:4}}>{so(p.price)}</s><b style={{color:'var(--b)'}}>{so(p.sale_price)} 🔥</b></>:so(p.price)}{p.unit==='weight'?' / kg':''}
+            <div className="m" style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginTop:2}}>
+              {!dept?<CatPicker compact value={p.category} cats={d.cats} canCreate onReload={onReload} onChange={newCat=>act(async()=>{
+                await api(`/api/products/${p.id}/category`,'PUT',{category:newCat,activate:!!p.needs_setup})
+                setList(prev=>prev.map(x=>x.id===p.id?{...x,category:newCat,needs_setup:false,active:p.needs_setup?true:x.active}:x).filter(x=>st!=='setup'||x.needs_setup))
+                say&&say(`✅ "${newCat}" bo'limiga o'tkazildi`)
+              })}/>:<span>{p.category}</span>}
+              <span>· {onS?<><s style={{marginRight:4}}>{so(p.price)}</s><b style={{color:'var(--b)'}}>{so(p.sale_price)} 🔥</b></>:so(p.price)}{p.unit==='weight'?' / kg':''}</span>
               {p.unit==='weight'&&p.min_sum>0?` · min ${so(p.min_sum)}`:''}
               {p.unit==='piece'&&p.weight_g>0?` · ${p.weight_g} g`:''}
               {p.sales_count>0?` · ⭐ ${p.sales_count}`:''}

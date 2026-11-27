@@ -729,3 +729,66 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .bitem-arr{font-size:19px;font-weight:700;color:#9CA3AF;margin-left:2px;flex:none;line-height:1}
 .bitem-cam{position:absolute;right:-4px;bottom:-4px;width:22px;height:22px;border-radius:99px;background:#fff;border:1px solid rgba(17,24,39,.12);box-shadow:0 2px 6px rgba(0,0,0,.18);display:grid;place-items:center;font-size:11px;cursor:pointer}
 .bitem-l .ci.sm{width:50px;height:50px;border-radius:12px}
+
+/* iOS-inspired Tactile Buttons, Switches, Inputs & Collapsible Category Picker */
+.btn,.add-full,.chip,.sort-chip,.sub-tab,.msel,.seg button,.prio-bar button{
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',Inter,sans-serif;
+  letter-spacing:-.012em;
+  transition:transform .14s cubic-bezier(.32,.72,0,1),box-shadow .16s ease,background .16s ease,opacity .14s ease;
+}
+.btn{
+  border-radius:14px;
+  background:linear-gradient(180deg,#F43F5E 0%,#E11D48 100%);
+  box-shadow:0 4px 14px rgba(225,29,72,.26),inset 0 1px 0 rgba(255,255,255,.25);
+  padding:12px 16px;
+}
+.btn:active,.msel:active,.chip:active,.sort-chip:active{transform:scale(.965)}
+.btn.s{padding:7px 13px;font-size:13px;border-radius:99px;font-weight:700}
+.btn.g{background:rgba(118,118,128,.12);color:#1C1C1E;box-shadow:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.btn.g:active{background:rgba(118,118,128,.2)}
+.btn.k{background:linear-gradient(180deg,#34D399 0%,#10B981 100%);color:#fff;box-shadow:0 3px 10px rgba(16,185,129,.22),inset 0 1px 0 rgba(255,255,255,.28)}
+.seg{background:rgba(118,118,128,.12);border-radius:12px;padding:3px}
+.seg button{border-radius:9px;padding:7px 10px;font-size:12.5px}
+.seg button.on{background:#fff;color:#111827;box-shadow:0 3px 8px rgba(0,0,0,.10),0 1px 1px rgba(0,0,0,.04)}
+.sw{width:46px;height:28px}
+.sw i{background:rgba(120,120,128,.24)}
+.sw i:before{width:24px;height:24px;left:2px;top:2px;box-shadow:0 2px 5px rgba(0,0,0,.22)}
+.sw input:checked+i{background:#34C759}
+.sw input:checked+i:before{transform:translateX(18px)}
+.in{border-radius:12px;padding:10px 12px;background:#F9FAFB;border:1px solid rgba(60,60,67,.14)}
+.in:focus{background:#fff;border-color:var(--b);box-shadow:0 0 0 3px rgba(225,29,72,.12)}
+
+/* Compact iOS Category Picker & Accordion */
+.msel.compact{
+  display:inline-flex;width:auto;min-height:26px;padding:3px 9px 3px 7px;margin:0;
+  border-radius:99px;background:rgba(225,29,72,.08);border:1px solid rgba(225,29,72,.18);
+  font-size:11.5px;font-weight:700;color:var(--b7);gap:4px;box-shadow:none
+}
+.msel.compact .msel-ico{width:16px;height:16px;font-size:12px;background:transparent}
+.msel.compact .msel-txt{font-size:11.5px;font-weight:700;color:var(--b7);max-width:170px}
+.msel.compact .msel-arr svg{width:12px;height:12px}
+
+.ios-cat-list{display:flex;flex-direction:column;gap:5px}
+.ios-cat-group{border-radius:14px;background:#F8F9FB;border:1px solid #ECEEF3;overflow:hidden;transition:border-color .15s,background .15s}
+.ios-cat-group.open{background:#fff;border-color:#FDA4AF;box-shadow:0 4px 14px rgba(17,24,39,.05)}
+.pick-row.compact{padding:8px 10px;margin-bottom:0;border-radius:12px;border:0;background:transparent}
+.pick-row.compact .pick-ico{width:28px;height:28px;border-radius:8px;font-size:15px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.pick-row.compact .pick-lbl b{font-size:13.5px}
+.pick-row.compact .pick-lbl small{font-size:11px;margin-top:1px}
+.pick-row.compact.root.has-sel{background:#FFF5F6}
+.ios-cat-cnt{background:rgba(60,60,67,.1);color:#3C3C43;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px}
+.ios-cat-group.open .ios-cat-cnt{background:#FFE4E6;color:var(--b7)}
+.ios-chev{display:grid;place-items:center;color:#8E8E93;transition:transform .18s cubic-bezier(.32,.72,0,1)}
+.ios-chev.open{transform:rotate(90deg);color:var(--b)}
+.ios-sub-wrap{padding:3px 6px 6px 12px;border-top:1px solid #F1F2F6;background:#FAFAFC;display:flex;flex-direction:column;gap:3px}
+.pick-row.compact.sub{padding:7px 9px;border-radius:10px;background:#fff;border:1px solid #EEF0F4}
+.pick-row.compact.sub.on{border-color:var(--b);background:#FFF1F2}
+
+/* Compact priority bar & collapsible extra fields */
+.prio-bar.compact{margin:0;gap:4px}
+.prio-bar.compact button{padding:6px 4px;font-size:12px;border-radius:9px}
+.ios-fold{margin:4px 0 8px;border:1px solid #ECEEF3;border-radius:13px;background:#F8F9FB;padding:8px 11px}
+.ios-fold summary{cursor:pointer;font-size:12.5px;font-weight:700;color:#374151;list-style:none;display:flex;align-items:center;justify-content:space-between}
+.ios-fold summary::-webkit-details-marker{display:none}
+.ios-fold summary::after{content:'›';font-size:16px;font-weight:800;color:#9CA3AF;transform:rotate(90deg);transition:transform .16s}
+.ios-fold[open] summary::after{transform:rotate(-90deg);color:var(--b)}
