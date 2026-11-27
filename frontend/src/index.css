@@ -716,3 +716,9 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .feat-meta b{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px}
 .feat-hours{margin-top:8px;padding-top:10px;border-top:1px dashed #E5E7EB}
 .closed-banner{background:#FEF3C7;border-color:#FDE68A;color:#92400E;font-size:13.5px}
+
+/* Korzinka Go Sectioned Bento Catalog */
+.kz-sec{margin:18px 0 8px}
+.kz-sec:first-of-type{margin-top:6px}
+.kz-sec .bento-sec-head{margin:0 0 11px}
+.kz-sec .bento-sec-head h2{font-size:21px;font-weight:800;letter-spacing:-.03em;color:#111827}
