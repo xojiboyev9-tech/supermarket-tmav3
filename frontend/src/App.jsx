@@ -1285,7 +1285,7 @@ function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx
       const subCount=tree?tree.childrenOf(c.name).length:0
       return <div
         key={c.name}
-        className={`bento-tile sp-${sp}`}
+        className={`bento-tile sp-${sp}${c.image?" has-img":""}`}
         style={{background:bg}}
         onClick={()=>onPick(c.name)}
       >
