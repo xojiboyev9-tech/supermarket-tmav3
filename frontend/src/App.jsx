@@ -1152,14 +1152,14 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
         <BundleCarousel bundles={d.bundles} onOpen={setBdet} actionBtn={actionBtn}/>
       </>}
 
-      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
-
       {F(d,'homeShelves')&&homeHits.length>0&&<>
         <div className="sec-head"><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
-        <div className="grid">
-          {homeHits.map((p,i)=><ProductCard key={'hh:'+p.id} p={p} idx={i} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn}/>)}
+        <div className="hrow shelf-row">
+          {homeHits.map(p=><ProductCard key={'hh:'+p.id} p={p} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
         </div>
       </>}
+
+      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
     </>:<>
       <div className="cat-bar">
         <button className="back-btn" aria-label="Back" onClick={()=>{if(favView){setFavView(false)}else if(dq){setQ('')}else if(fam&&!cat){setFam('')}else if(parentObj){setCat(parentObj.name)}else{setCat('');setFam('')}}}>
