@@ -807,9 +807,9 @@ function WeightSheet({p,cur,close,set,onAdminOpen}){
   const {t,so,pn}=useLang()
   const up=effPrice(p)
   const g=p.min_grams>0
-  const minS=Math.max(1000,Number(p.min_sum)||0)
-  const sumChips=[...new Set([minS,...[10000,20000,30000,50000,100000].filter(x=>x>=minS)])].sort((a,b)=>a-b).slice(0,4)
-  const [v,setV]=useState(g?(cur?.grams||p.min_grams):(cur?.sum||Math.max(20000,minS)))
+  const minS=Math.max(1000,Number(p.min_sum)||30000)
+  const sumChips=[...new Set([minS,...[30000,50000,75000,100000,150000].filter(x=>x>=minS)])].sort((a,b)=>a-b).slice(0,4)
+  const [v,setV]=useState(g?(cur?.grams||p.min_grams):(cur?.sum||Math.max(30000,minS)))
   return <div className="sheet" onClick={close}><div onClick={e=>e.stopPropagation()}>
     <div className="sheet-handle"/>
     <div className="row" style={{margin:'0 0 8px'}}>
@@ -1765,7 +1765,7 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act,onReload}){
         const qty=Math.max(1,Math.min(500,Math.round(Number(i.qty)||1)))
         next[keyOf(p)]={p,qty};added++
       }else if(p.unit==='weight'&&!(p.min_grams>0)){
-        const minS=Math.max(1000,Number(p.min_sum)||0)
+        const minS=Math.max(1000,Number(p.min_sum)||30000)
         const sum=Math.max(minS,Math.round(Number(i.ordered_sum)||minS))
         next[keyOf(p)]={p,sum};added++
       }
@@ -2206,7 +2206,7 @@ function ProductFields({f,setF,dept,tree,cats,families,onReload,onPick,onSave,on
       <ModernSelect style={{flex:1}} value={f.unit} options={unitOpts} onChange={v=>setF({...f,unit:v})} title="O'lchov birligi"/>
     </div>
     {f.unit==='weight'?<div className="gap">
-      <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. summa (so'm, mas. 15000)" value={f.min_sum||''} onChange={e=>setF({...f,min_sum:digits(e.target.value)})}/>
+      <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. summa (so'm, standart 30000)" value={f.min_sum||''} onChange={e=>setF({...f,min_sum:digits(e.target.value)})}/>
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. gramm (ixtiyoriy)" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>
     </div>:<input className="in" type="text" inputMode="numeric" placeholder="Og'irligi (gramm, yetkazish limiti uchun — ixtiyoriy)" value={f.weight_g||''} onChange={e=>setF({...f,weight_g:digits(e.target.value)})}/>}
     <div className="sale-box">
@@ -2259,6 +2259,7 @@ function Products({d,act,say,onReload,initState,initCat}){
   const [addOpen,setAddOpen]=useState(false),[f,setF]=useState(e0),[ed,setEd]=useState(null),[anP,setAnP]=useState(null)
   const [q,setQ]=useState(''),[st,setSt]=useState(initState||'all'),[cat,setCat]=useState(initCat||''),[prio,setPrio]=useState(''),[fam,setFam]=useState('')
   const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
+  const [orgBusy,setOrgBusy]=useState(false),[orgRes,setOrgRes]=useState(null),[orgActSetup,setOrgActSetup]=useState(false)
   const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncSrc,setSyncSrc]=useState('csv'),[syncMeta,setSyncMeta]=useState(null),[syncProg,setSyncProg]=useState(''),[syncAct,setSyncAct]=useState(true),[syncDeact,setSyncDeact]=useState(true),[syncOnlyInStock,setSyncOnlyInStock]=useState(true),[syncActNew,setSyncActNew]=useState(false),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
   const dq=useDebounced(q)
   const go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
@@ -2447,6 +2448,34 @@ function Products({d,act,say,onReload,initState,initCat}){
         </div>}
       </div>
     })()}
+
+    {!dept&&<div className="card" style={{background:'linear-gradient(135deg,#FFF1F2,#F0FDF4)',borderColor:'#FECDD3',padding:12}}>
+      <div className="row" style={{margin:'0 0 6px'}}>
+        <b style={{fontSize:14}}>🪄 Tovarlarni avtomatik bo'limlarga ajratish</b>
+        <span className="badge green">30 000 so'm / kg</span>
+      </div>
+      <div className="m" style={{marginBottom:8}}>
+        • Barcha faol va <b>🆕 Sozlash kerak</b> tovarlarni nomiga qarab tegishli bo'limlarga (Meva, Sabzavot, Kolbasa, Sut, Pishloq, Ichimlik, Shirinlik va h.k.) ajratadi;<br/>
+        • Ruscha nomli tovarlarga <b>o'zbekcha muqobil nom</b> yozadi;<br/>
+        • Barcha kiloli (og'irlikli) tovarlarga <b>minimal 30 000 so'm</b> belgilaydi.
+      </div>
+      <label className="row" style={{margin:'0 0 8px',fontSize:12.5}}>
+        <span>🚀 «🆕 Sozlash kerak» tovarlarni ham bo'limga tushgach Faol qilish</span>
+        <input type="checkbox" checked={orgActSetup} onChange={e=>setOrgActSetup(e.target.checked)}/>
+      </label>
+      <button type="button" className="btn s" style={{width:'100%'}} disabled={orgBusy} onClick={async()=>{
+        setOrgBusy(true);setOrgRes(null)
+        try{
+          const r=await api('/api/admin/products/auto-organize','POST',{minWeightSum:30000,activateSetup:orgActSetup})
+          setOrgRes(r);setVer(v=>v+1);onReload&&onReload()
+          say&&say(`✅ ${r.catMoved} ta bo'limga ajratildi, ${r.uzFilled} ta o'zbekcha nom, ${r.weightUpdated} ta kiloli (30 000 so'm)`)
+        }catch(e){say&&say(e.message)}
+        setOrgBusy(false)
+      }}>{orgBusy?'⏳ Ajratilmoqda…':"🪄 Bo'limlarga ajratish + O'zbekcha nom + Kiloga 30 000 so'm"}</button>
+      {orgRes&&<div style={{marginTop:8,padding:8,borderRadius:10,background:'#ECFDF5',color:'#065F46',fontSize:12.5,fontWeight:600}}>
+        ✅ Tekshirildi: {orgRes.scanned} ta · Bo'limga joylandi: <b>{orgRes.catMoved}</b> ta · O'zbekcha nom berildi: <b>{orgRes.uzFilled}</b> ta · Kiloli 30 000 so'm: <b>{orgRes.weightUpdated}</b> ta{orgRes.subCreated>0?` · Yangi ichki bo'lim: ${orgRes.subCreated} ta`:''}
+      </div>}
+    </div>}
 
     <input className="search search-plain" placeholder="🔍 Nomi yoki shtrixkod" value={q} onChange={e=>setQ(e.target.value)}/>
     <div className="chips">
@@ -2945,7 +2974,7 @@ function AdminSecurity({act,say}){
   </>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.cancelled_by_user':'Mijoz bekor qildi','order.edited':"Mijoz buyurtmani o'zgartirdi",'order.edit_requested':"O'zgartirish so'raldi",'order.edit_allowed':"O'zgartirishga ruxsat",'order.edit_denied':"O'zgartirish rad etildi",'settings.features':'🧩 Funksiyalar boshqaruvi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','role.ai':'🤖 AI yordamchi ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.cancelled_by_user':'Mijoz bekor qildi','order.edited':"Mijoz buyurtmani o'zgartirdi",'order.edit_requested':"O'zgartirish so'raldi",'order.edit_allowed':"O'zgartirishga ruxsat",'order.edit_denied':"O'zgartirish rad etildi",'settings.features':'🧩 Funksiyalar boshqaruvi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','products.auto_organize':"🪄 Tovarlar bo'limlarga ajratildi",'ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','role.ai':'🤖 AI yordamchi ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
 const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category|ai)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
@@ -3249,7 +3278,7 @@ export default function App(){
       {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}} onReload={load} say={say}/>}
       {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart} favs={favs} toggleFav={toggleFav} onReload={load} say={say}/>}
       {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')} onReload={load}/>}
-      {tab==='orders'&&<Orders d={d} act={act} cart={cart} setCart={setCart} favs={favs} toggleFav={toggleFav} onReload={load} say={say} onReorder={o=>{const next={...cart};let added=0;for(const i of (o.items||[])){if(!i.product_id||i.active===false)continue;const p={id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0};if(!p.price)continue;if(p.unit==='piece'){next[keyOf(p)]={p,qty:Math.max(1,Math.min(500,Math.round(Number(i.qty)||1)))};added++}else if(p.unit==='weight'&&!(p.min_grams>0)){const ms=Math.max(1000,Number(p.min_sum)||0);next[keyOf(p)]={p,sum:Math.max(ms,Math.round(Number(i.ordered_sum)||ms))};added++}}if(!added){say(t("Bu buyurtmada faol mahsulot topilmadi"));return}setCart(next);say(t("Savatga qo'shildi ✅"));setTab('cart')}}/>}
+      {tab==='orders'&&<Orders d={d} act={act} cart={cart} setCart={setCart} favs={favs} toggleFav={toggleFav} onReload={load} say={say} onReorder={o=>{const next={...cart};let added=0;for(const i of (o.items||[])){if(!i.product_id||i.active===false)continue;const p={id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0};if(!p.price)continue;if(p.unit==='piece'){next[keyOf(p)]={p,qty:Math.max(1,Math.min(500,Math.round(Number(i.qty)||1)))};added++}else if(p.unit==='weight'&&!(p.min_grams>0)){const ms=Math.max(1000,Number(p.min_sum)||30000);next[keyOf(p)]={p,sum:Math.max(ms,Math.round(Number(i.ordered_sum)||ms))};added++}}if(!added){say(t("Bu buyurtmada faol mahsulot topilmadi"));return}setCart(next);say(t("Savatga qo'shildi ✅"));setTab('cart')}}/>}
       {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act} onReload={load}/>}
       {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} say={say} onReload={load} onPreviewAnim={p=>setAnimOverride(p)}/>}
 
