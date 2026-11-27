@@ -38,7 +38,7 @@ exports.createOrder=async(me,b)=>{
    if(!dv.enabled)throw bad("Yetkazib berish hozir o'chirilgan");
    if(subtotal<(dv.minTotal||0))throw bad(`Yetkazib berish ${(dv.minTotal||0).toLocaleString('ru-RU')} so'mdan boshlanadi`);
    if(dv.maxKg>0&&orderKg>dv.maxKg)throw bad(`Yetkazib berish maksimal ${dv.maxKg} kg gacha (savatingiz: ${orderKg.toFixed(1)} kg)`);
-   if(String(b.address||'').trim().length<5)throw bad('Manzilni yozing');
+   if(String(b.address||'').trim().length<2)throw bad('Manzilni yozing');
    type='delivery';
   }
   const code=String(1000+Math.floor(Math.random()*9000));

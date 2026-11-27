@@ -1380,17 +1380,17 @@ function DeliveryMeter({d,sub}){
   const {t,so}=useLang()
   const dl=d.settings?.delivery
   if(!dl?.enabled)return null
-  const freeT=Number(d.settings?.freeDeliveryThreshold)
   const minT=Number(dl.minTotal)||0
-  const hasFree=Number.isFinite(freeT)&&freeT>0
-  const target=hasFree?freeT:minT
+  const freeT=Number(d.settings?.freeDeliveryThreshold)
+  const useMin=minT>0
+  const target=useMin?minT:(Number.isFinite(freeT)&&freeT>0?freeT:0)
   if(!(target>0))return null
   const pct=Math.min(100,Math.round((sub/target)*100))
   const rem=Math.max(0,target-sub)
   const done=rem<=0
-  const lbl=hasFree
-    ?(done?'🎉 '+t("Bepul yetkazib berish!"):`🚚 ${t("Bepul yetkazishgacha")}: ${so(rem)}`)
-    :(done?'✅ '+t("Yetkazib berish mumkin!"):`🚚 ${t("Minimal buyurtmagacha")}: ${so(rem)}`)
+  const lbl=useMin
+    ?(done?'✅ '+t("Yetkazib berish mumkin!"):`🚚 ${t("Minimal buyurtmagacha")}: ${so(rem)}`)
+    :(done?'🎉 '+t("Bepul yetkazib berish!"):`🚚 ${t("Bepul yetkazishgacha")}: ${so(rem)}`)
   return <div className={'dl-meter'+(done?' ok':'')}>
     <div className="dl-meter-top"><span>{lbl}</span><b>{pct}%</b></div>
     <div className="dl-meter-bar"><i style={{width:pct+'%'}}/></div>
@@ -1418,7 +1418,8 @@ function Cart({d,cart,setCart,act,done,onReload}){
   const needPhone=!d.user.phone
   const phoneOk=!needPhone||phone.replace(/\D/g,'').length>=9
   const minT=dl.minTotal||0,maxKg=Number(dl.maxKg)||0,overKg=type==='delivery'&&maxKg>0&&estKg>maxKg
-  const ok=phoneOk&&(type==='pickup'||(sub>=minT&&!overKg&&addr.trim().length>=5))
+  const addrOk=addr.trim().length>=2
+  const ok=phoneOk&&(type==='pickup'||(sub>=minT&&!overKg&&addrOk))
   return <>
     <h1>{t("Savat")}</h1>
     <DeliveryMeter d={d} sub={sub}/>
@@ -1459,6 +1460,7 @@ function Cart({d,cart,setCart,act,done,onReload}){
       <textarea className="in" rows={2} placeholder={t("Manzil (ko'cha, uy, mo'ljal)")} value={addr} onChange={e=>setAddr(e.target.value)}/>
       <div className="m">📞 Buyurtmadan keyin administrator telefon orqali bog'lanib tasdiqlaydi.{minT>0&&` Minimal summa: ${so(minT)}.`}{maxKg>0&&` ${t("Maksimal og'irlik")}: ${maxKg} kg.`} {dl.note}</div>
       {sub<minT&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>Yana {so(minT-sub)} kerak</div>}
+      {!addrOk&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>📍 {t("Manzil (ko'cha, uy, mo'ljal)")}ni kiriting</div>}
       {overKg&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>⚖️ Yetkazib berish limiti {maxKg} kg (hozir ~{estKg.toFixed(2)} kg). Ba'zi tovarlarni kamaytiring yoki olib ketishni tanlang.</div>}
     </div>}
 
@@ -1476,7 +1478,7 @@ function Cart({d,cart,setCart,act,done,onReload}){
       {lines.some(l=>l.v.sum)&&<div className="m">⚖️ Og'irlikli tovarlar tortilgach narx o'zgarsa, tasdiqlashingiz so'raladi.</div>}
       {age>0&&<div className="m">{t("🔞 Yosh tasdig'i botda so'raladi.")}</div>}</div>
     <button className="btn" disabled={!ok} onClick={()=>act(async()=>{
-      if(type==='delivery'&&addr.trim().length>=5){const cur=loadAddrs();if(!cur.includes(addr.trim()))saveAddrs([addr.trim(),...cur])}
+      if(type==='delivery'&&addr.trim().length>=2){const cur=loadAddrs();if(!cur.includes(addr.trim()))saveAddrs([addr.trim(),...cur])}
       await api('/api/orders','POST',{items:lines.map(({p,v})=>p.bundle?{bundleId:p.id,qty:v.qty}:{productId:p.id,...(v.sum?{sum:v.sum}:v.grams?{grams:v.grams}:{qty:v.qty})}),type,address:addr,...(needPhone?{phone}:{})});setCart({});done()
     },'Buyurtma yuborildi ✅')}>{t("Buyurtma berish")}</button>
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}}/>}
@@ -1630,7 +1632,7 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act,onReload}){
 
   const pastAddrs=[...new Set([...addrs,...mine.filter(o=>o.type==='delivery'&&o.address).map(o=>o.address.trim())])].filter(Boolean)
   const addAddress=()=>{
-    const a=newAddr.trim();if(a.length<5)return
+    const a=newAddr.trim();if(a.length<2)return
     const next=[a,...addrs.filter(x=>x!==a)]
     setAddrs(next);saveAddrs(next);setNewAddr('');say('Saqlandi')
   }
@@ -3013,9 +3015,10 @@ export default function App(){
   const activePreset=animOverride??(d.settings.animation?.preset||'none')
   const showAiBtn=d.role==='superadmin'||(d.role==='admin'&&!!d.user?.canAi)
   const dl=d.settings?.delivery
+  const minT=dl?.enabled?(Number(dl.minTotal)||0):0
   const freeT=Number(d.settings?.freeDeliveryThreshold)
-  const hasFree=dl?.enabled&&Number.isFinite(freeT)&&freeT>0
-  const barTarget=hasFree?freeT:(dl?.enabled?(Number(dl.minTotal)||0):0)
+  const useMin=minT>0
+  const barTarget=useMin?minT:(dl?.enabled&&Number.isFinite(freeT)&&freeT>0?freeT:0)
   const barRem=barTarget>0?Math.max(0,barTarget-cartTotal):0
   const barPct=barTarget>0?Math.min(100,Math.round((cartTotal/barTarget)*100)):0
 
@@ -3042,7 +3045,7 @@ export default function App(){
       {(tab==='shop'||tab==='catalog'||tab==='promo')&&<ScrollTopBtn/>}
 
       {showBar&&<button className="cart-bar" onClick={()=>{haptic('light');setTab('cart')}}>
-        {barTarget>0&&<div className="cb-prog"><span className="cb-prog-txt">{barRem>0?(hasFree?`🚚 ${t("Bepul yetkazishgacha")}: ${so(barRem)}`:`🚚 ${t("Minimal buyurtmagacha")}: ${so(barRem)}`):(hasFree?'🎉 '+t("Bepul yetkazib berish!"):'✅ '+t("Yetkazib berish mumkin!"))}</span><i style={{width:barPct+'%'}}/></div>}
+        {barTarget>0&&<div className="cb-prog"><span className="cb-prog-txt">{barRem>0?(useMin?`🚚 ${t("Minimal buyurtmagacha")}: ${so(barRem)}`:`🚚 ${t("Bepul yetkazishgacha")}: ${so(barRem)}`):(useMin?'✅ '+t("Yetkazib berish mumkin!"):'🎉 '+t("Bepul yetkazib berish!"))}</span><i style={{width:barPct+'%'}}/></div>}
         <div className="cb-main">
           <span className="cb-l"><span className="cb-n">{n}</span><span>{t("Savatga o'tish")}</span></span>
           <span className="cb-r">{so(cartTotal)} →</span>
