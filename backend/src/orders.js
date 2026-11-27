@@ -262,19 +262,33 @@ exports.editApply=async(userId,id,changes)=>{
   const o=(await cl.query("select * from orders where id=$1 and user_id=$2 and edit_state='allowed' for update",[id,userId])).rows[0];
   if(!o)throw bad("Ruxsat yo'q");
   for(const ch of (Array.isArray(changes)?changes:[]).slice(0,60)){
-   const i=(await cl.query("select * from order_items where id=$1 and order_id=$2 and unit='piece'",[+ch.itemId,id])).rows[0];
+   const i=(await cl.query('select * from order_items where id=$1 and order_id=$2',[+ch.itemId,id])).rows[0];
    if(!i)continue;
-   const n=Math.max(0,Math.min(500,Math.round(+ch.qty)));
-   const diff=n-Number(i.qty);
-   if(wh&&i.product_id&&diff!==0){
-    const p=(await cl.query('select stock from products where id=$1 for update',[i.product_id])).rows[0];
-    if(p&&p.stock!==null){
-     if(diff>0&&Number(p.stock)<diff)throw bad(`${i.name}: omborda yetarli emas`);
-     await cl.query('update products set stock=stock-$1 where id=$2',[diff,i.product_id]);
+   const p=i.product_id?(await cl.query('select stock,min_grams,min_sum from products where id=$1 for update',[i.product_id])).rows[0]:null;
+   let newQty=0,newSum=0;
+   if(i.unit==='weight'){
+    const up=Number(i.unit_price)||1;
+    if(ch.remove||(+ch.grams<=0&&+ch.sum<=0&&+ch.qty<=0)){newQty=0;newSum=0}
+    else if(ch.grams!=null&&+ch.grams>0){
+     const minG=(p?.min_grams>0)?p.min_grams:50;
+     const g=Math.max(minG,Math.min(20000,Math.round(+ch.grams/50)*50));
+     newQty=g/1000;newSum=Math.round(up*g/1000);
+    }else{
+     const minS=Math.max(1000,Number(p?.min_sum)||0);
+     const s=Math.round(+ch.sum||(+ch.qty*up)||0);
+     if(s>0){newSum=Math.max(minS,Math.min(5000000,s));newQty=Math.round(newSum/up*1000)/1000}
     }
+   }else{
+    newQty=Math.max(0,Math.min(500,Math.round(+ch.qty||0)));
+    newSum=newQty*Number(i.unit_price);
    }
-   if(!n)await cl.query('delete from order_items where id=$1',[i.id]);
-   else await cl.query('update order_items set qty=$1,ordered_sum=unit_price*$1 where id=$2',[n,i.id]);
+   const diff=newQty-Number(i.qty);
+   if(wh&&p&&p.stock!==null&&diff!==0){
+    if(diff>0&&Number(p.stock)<diff)throw bad(`${i.name}: omborda yetarli emas`);
+    await cl.query('update products set stock=stock-$1 where id=$2',[diff,i.product_id]);
+   }
+   if(!(newQty>0))await cl.query('delete from order_items where id=$1',[i.id]);
+   else await cl.query('update order_items set qty=$1,ordered_sum=$2,actual_sum=null where id=$3',[newQty,newSum,i.id]);
   }
   await cl.query('update orders set edit_state=null where id=$1',[id]);
   const items=(await cl.query('select * from order_items where order_id=$1',[id])).rows;

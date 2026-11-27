@@ -1504,29 +1504,78 @@ function OrderTracker({status}){
 
 function Orders({d,act}){
   const {t,so}=useLang()
-  const [ed,setEd]=useState(null),mine=d.orders.filter(o=>o.user_id==d.user.telegramId),post=(o,p,b,m)=>act(()=>api(`/api/orders/${o.id}/${p}`,'POST',b),m)
+  const [ed,setEd]=useState(null),[wsh,setWsh]=useState(null)
+  const mine=d.orders.filter(o=>o.user_id==d.user.telegramId),post=(o,p,b,m)=>act(()=>api(`/api/orders/${o.id}/${p}`,'POST',b),m)
   if(!mine.length)return <div className="empty-box" style={{minHeight:300}}><span>📦</span><b>{t("Buyurtmalar yo'q")}</b></div>
-  return <><h1>{t("Buyurtmalarim")}</h1>{mine.map(o=><div className="card ord-card" key={o.id}>
-    <div className="row" style={{marginTop:0}}><b>#{o.id}</b><Badge s={o.status}/></div>
-    {o.created_at&&<div className="m" style={{marginBottom:6}}>{fmtDt(o.created_at)}</div>}
-    <OrderTracker status={o.status}/>
-    {o.status==='ready'&&o.code&&<div className="ready-code-box">
-      <span>{t("Olib ketish kodi")}</span>
-      <b>{o.code}</b>
-    </div>}
-    {o.items.map(i=><div className="row" key={i.id}><span className="gap" style={{alignItems:'center',flexWrap:'nowrap'}}><Thumb p={{image:i.image,category:'Boshqa'}} cls="ci sm"/><span style={{fontSize:13}}>{i.name}{i.sub_status==='proposed'&&<b> → {i.sub_name}</b>}</span></span>
-      {ed?.id===o.id&&i.unit==='piece'?<QtyControl qty={ed.ch[i.id]||0} max={500} variant="soft compact" onChange={n=>setEd({...ed,ch:{...ed.ch,[i.id]:n}})}/>:<span className="m">{so(i.actual_sum??i.ordered_sum)}</span>}</div>)}
-    <div className="row"><span>{o.type==='delivery'?'🚚 '+t("Yetkazib berish"):t("🏃 Olib ketish")}</span><b>{so(o.total)}</b></div>
-    {o.type==='delivery'&&o.status==='new'&&<div className="m">📞 Administrator siz bilan bog'lanadi</div>}
-    {o.status==='awaiting_confirm'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>⚖️ Tortgandan so'ng narx o'zgardi. Yangi mahsulotlar jami: <b>{so(o.pending_subtotal)}</b></div>
-      <div className="gap"><button className="btn k" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:true},'Tasdiqlandi')}>{t("Roziman")}</button><button className="btn g" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:false},'Bekor qilindi')}>{t("Bekor qilish")}</button></div></>}
-    {o.status==='sub_pending'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>🔁 Almashtirish taklifi:{o.items.filter(i=>i.sub_status==='proposed').map(i=><div key={i.id}>{i.name} → <b>{i.sub_name}</b> ({so(i.sub_price)})</div>)}</div>
-      <div className="gap"><button className="btn k" style={{flex:1}} onClick={()=>post(o,'sub-answer',{accept:true},'Tasdiqlandi')}>{t("Roziman")}</button><button className="btn g" style={{flex:1}} onClick={()=>post(o,'sub-answer',{accept:false},'Shunsiz davom etamiz')}>Shunsiz davom</button></div></>}
-    {['new','accepted','preparing'].includes(o.status)&&!o.edit_state&&<button className="btn s g" onClick={()=>post(o,'edit-request',{},"So'rov yuborildi")}>✏️ O'zgartirishni so'rash</button>}
-    {o.edit_state==='requested'&&<div className="m">⏳ Administrator ruxsatini kutyapmiz</div>}
-    {o.edit_state==='allowed'&&(ed?.id===o.id?<div className="gap"><button className="btn s" onClick={()=>post(o,'edit-apply',{changes:Object.entries(ed.ch).map(([itemId,qty])=>({itemId,qty}))},'Saqlandi').then(()=>setEd(null))}>{t("Saqlash")}</button><button className="btn s g" onClick={()=>setEd(null)}>{t("Bekor")}</button></div>
-      :<button className="btn s" onClick={()=>setEd({id:o.id,ch:Object.fromEntries(o.items.filter(i=>i.unit==='piece').map(i=>[i.id,Number(i.qty)]))})}>✏️ Tahrirlash (ruxsat berilgan)</button>)}
-  </div>)}</>
+
+  const startEdit=o=>{
+    const ch={}
+    for(const i of (o.items||[])){
+      if(i.unit==='weight'){
+        if(i.min_grams>0)ch[i.id]={grams:Math.max(i.min_grams,Math.round(Number(i.qty||0)*1000))}
+        else ch[i.id]={sum:Math.round(Number(i.actual_sum??i.ordered_sum)||1000)}
+      }else ch[i.id]={qty:Math.max(1,Math.round(Number(i.qty)||1))}
+    }
+    setEd({id:o.id,ch})
+  }
+  const setItemVal=(itemId,val)=>setEd(prev=>prev?{...prev,ch:{...prev.ch,[itemId]:val}}:prev)
+
+  return <><h1>{t("Buyurtmalarim")}</h1>{mine.map(o=>{
+    const isEd=ed?.id===o.id
+    return <div className="card ord-card" key={o.id}>
+      <div className="row" style={{marginTop:0}}><b>#{o.id}</b><Badge s={o.status}/></div>
+      {o.created_at&&<div className="m" style={{marginBottom:6}}>{fmtDt(o.created_at)}</div>}
+      <OrderTracker status={o.status}/>
+      {o.status==='ready'&&o.code&&<div className="ready-code-box">
+        <span>{t("Olib ketish kodi")}</span>
+        <b>{o.code}</b>
+      </div>}
+      {o.items.map(i=>{
+        const c=isEd?(ed.ch[i.id]||{}):null
+        const removed=isEd&&(c.remove||(i.unit==='piece'&&!(c.qty>0)))
+        const curSum=isEd
+          ?(removed?0:(i.unit==='weight'?(c.grams?Math.round((Number(i.unit_price)||0)*c.grams/1000):(c.sum||0)):((Number(i.unit_price)||0)*(c.qty||0))))
+          :(i.actual_sum??i.ordered_sum)
+        return <div className="row" key={i.id} style={removed?{opacity:.45,textDecoration:'line-through'}:undefined}>
+          <span className="gap" style={{alignItems:'center',flexWrap:'nowrap',minWidth:0,flex:1}}>
+            <Thumb p={{image:i.image,category:'Boshqa'}} cls="ci sm"/>
+            <span style={{fontSize:13,minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}}>
+              {i.name}{i.sub_status==='proposed'&&<b> → {i.sub_name}</b>}
+              {isEd&&<div className="m">{removed?t("O'chirish"):(i.unit==='weight'?(c.grams?`${c.grams} g · ${so(curSum)}`:so(curSum)):`${c.qty} × ${so(i.unit_price)}`)}</div>}
+            </span>
+          </span>
+          {isEd?(i.unit==='piece'
+            ?<QtyControl qty={c.qty||0} max={500} variant="soft compact" onChange={n=>setItemVal(i.id,{qty:n})}/>
+            :<span className="gap" style={{flexWrap:'nowrap',gap:6}}>
+              <button type="button" className="btn s g" onClick={()=>setWsh({item:i,cur:c})}>✎ {removed?t("Tiklash"):so(curSum)}</button>
+              {!removed&&<button type="button" className="btn s g" style={{color:'#BE123C'}} onClick={()=>setItemVal(i.id,{remove:true})}>🗑</button>}
+            </span>
+          ):<span className="m">{so(curSum)}</span>}
+        </div>
+      })}
+      <div className="row"><span>{o.type==='delivery'?'🚚 '+t("Yetkazib berish"):t("🏃 Olib ketish")}</span><b>{so(o.total)}</b></div>
+      {o.type==='delivery'&&o.status==='new'&&<div className="m">📞 Administrator siz bilan bog'lanadi</div>}
+      {o.status==='awaiting_confirm'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>⚖️ Tortgandan so'ng narx o'zgardi. Yangi mahsulotlar jami: <b>{so(o.pending_subtotal)}</b></div>
+        <div className="gap"><button className="btn k" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:true},'Tasdiqlandi')}>{t("Roziman")}</button><button className="btn g" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:false},'Bekor qilindi')}>{t("Bekor qilish")}</button></div></>}
+      {o.status==='sub_pending'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>🔁 Almashtirish taklifi:{o.items.filter(i=>i.sub_status==='proposed').map(i=><div key={i.id}>{i.name} → <b>{i.sub_name}</b> ({so(i.sub_price)})</div>)}</div>
+        <div className="gap"><button className="btn k" style={{flex:1}} onClick={()=>post(o,'sub-answer',{accept:true},'Tasdiqlandi')}>{t("Roziman")}</button><button className="btn g" style={{flex:1}} onClick={()=>post(o,'sub-answer',{accept:false},'Shunsiz davom etamiz')}>Shunsiz davom</button></div></>}
+      {['new','accepted','preparing'].includes(o.status)&&!o.edit_state&&<button className="btn s g" onClick={()=>post(o,'edit-request',{},"So'rov yuborildi")}>✏️ O'zgartirishni so'rash</button>}
+      {o.edit_state==='requested'&&<div className="m">⏳ Administrator ruxsatini kutyapmiz</div>}
+      {o.edit_state==='allowed'&&(isEd
+        ?<div className="gap" style={{marginTop:8}}>
+          <button className="btn s" style={{flex:1}} onClick={()=>post(o,'edit-apply',{changes:Object.entries(ed.ch).map(([itemId,v])=>({itemId,...v}))},'Saqlandi').then(()=>setEd(null))}>✓ {t("Saqlash")}</button>
+          <button className="btn s g" onClick={()=>setEd(null)}>{t("Bekor")}</button>
+        </div>
+        :<button className="btn s" onClick={()=>startEdit(o)}>✏️ Tahrirlash (ruxsat berilgan)</button>)}
+    </div>
+  })}
+  {wsh&&<WeightSheet
+    p={{id:wsh.item.product_id,name:wsh.item.name,name_uz:wsh.item.name_uz,price:Number(wsh.item.unit_price)||Number(wsh.item.cur_price)||1000,unit:'weight',min_grams:Number(wsh.item.min_grams)||0,min_sum:Number(wsh.item.min_sum)||0}}
+    cur={wsh.cur?.remove?null:wsh.cur}
+    close={()=>setWsh(null)}
+    set={v=>{setItemVal(wsh.item.id,v||{remove:true});setWsh(null)}}
+  />}
+  </>
 }
 
 function DiscountCardSection({d,act,say,onReload}){
