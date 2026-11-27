@@ -82,18 +82,31 @@ exports.cancelAction=(user,actionId)=>{
  return{ok:true};
 };
 
-/* Raw Gemini REST call (native Node 18+ fetch, zero npm deps, auto-fallback on deprecated model) */
-async function discoverModel(key,exclude){
+/* Raw Gemini REST call (native Node 18+ fetch, zero npm deps, auto-fallback on 429 / deprecated model) */
+const FALLBACK_MODELS=['gemini-2.5-flash','gemini-2.5-flash-lite','gemini-2.0-flash','gemini-2.0-flash-lite','gemini-3-flash-preview','gemini-3.0-flash'];
+const rankModel=n=>{
+ let s=0;
+ if(/flash/i.test(n))s+=100;
+ if(/lite/i.test(n))s-=5;
+ if(/preview|exp/i.test(n))s-=20;
+ if(/pro\b/i.test(n))s-=40;
+ return s;
+};
+async function discoverModels(key,tried){
+ const out=[];
  try{
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,{signal:AbortSignal.timeout(10000)});
-  if(!r.ok)return null;
-  const d=await r.json().catch(()=>({}));
-  const list=(d.models||[]).filter(m=>Array.isArray(m.supportedGenerationMethods)&&m.supportedGenerationMethods.includes('generateContent'))
-   .map(m=>String(m.name||'').replace(/^models\//,''))
-   .filter(n=>n&&n!==exclude&&/^gemini-/i.test(n)&&!/embedding|tts|image|vision|aqa|robotics|computer/i.test(n));
-  const flash=list.filter(n=>/flash/i.test(n)).sort().reverse();
-  return flash[0]||list.sort().reverse()[0]||null;
- }catch{return null}
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,{signal:AbortSignal.timeout(8000)});
+  if(r.ok){
+   const d=await r.json().catch(()=>({}));
+   const list=(d.models||[]).filter(m=>Array.isArray(m.supportedGenerationMethods)&&m.supportedGenerationMethods.includes('generateContent'))
+    .map(m=>String(m.name||'').replace(/^models\//,''))
+    .filter(n=>n&&!tried.has(n)&&/^gemini-/i.test(n)&&!/embedding|tts|image|vision|aqa|robotics|computer/i.test(n))
+    .sort((a,b)=>rankModel(b)-rankModel(a)||b.localeCompare(a));
+   for(const n of list)if(!out.includes(n))out.push(n);
+  }
+ }catch{}
+ for(const n of FALLBACK_MODELS)if(!tried.has(n)&&!out.includes(n))out.push(n);
+ return out.slice(0,5);
 }
 async function postGemini(key,model,body){
  const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
@@ -117,29 +130,32 @@ async function callGemini({system,contents,tools}){
  if(tools&&tools.length)body.tools=[{functionDeclarations:tools}];
  let model=modelName();
  let {res,data}=await postGemini(key,model,body);
- if(!res.ok&&(res.status===400||res.status===404)){
+ const canRetry=r=>r&&(r.status===429||r.status===404||(r.status===400&&/no longer available|not found|not supported|deprecated|unknown model/i.test(String(data?.error?.message||''))));
+ if(!res.ok&&canRetry(res)&&!process.env.GEMINI_MODEL){
+  const tried=new Set([model]);
   const msg=String(data?.error?.message||'');
-  if(/no longer available|not found|not supported|deprecated|unknown model/i.test(msg)){
-   const hint=/use\s+(?:models\/)?([a-zA-Z0-9._-]+)/i.exec(msg)?.[1];
-   let next=(hint&&hint!==model)?hint:await discoverModel(key,model);
-   if(next&&next!==model){
-    let retry=await postGemini(key,next,body);
-    if(!retry.res.ok&&hint){
-     const disc=await discoverModel(key,next);
-     if(disc&&disc!==next){next=disc;retry=await postGemini(key,next,body)}
-    }
-    res=retry.res;data=retry.data;
-    if(res.ok)resolvedModel=next;
-   }
+  const hint=/use\s+(?:models\/)?([a-zA-Z0-9._-]+)/i.exec(msg)?.[1];
+  const candidates=[];
+  if(hint&&!tried.has(hint))candidates.push(hint);
+  for(const c of await discoverModels(key,tried))if(!candidates.includes(c))candidates.push(c);
+  for(const next of candidates.slice(0,5)){
+   tried.add(next);
+   const retry=await postGemini(key,next,body);
+   res=retry.res;data=retry.data;
+   if(res.ok){resolvedModel=next;model=next;break}
+   if(res.status===401||res.status===403)break;
   }
  }
  if(!res.ok){
-  const msg=data?.error?.message||'';
-  if(res.status===429)throw O.bad("AI vaqtincha band (limitga yetdi). 1 daqiqadan keyin qayta urinib ko'ring.");
+  const msg=String(data?.error?.message||'');
+  console.error('gemini',model,res.status,msg.slice(0,300));
+  if(res.status===429){
+   if(/limit:\s*0\b/i.test(msg))throw O.bad("Bu Google API kalitida bepul AI limiti 0 ga teng (Google AI Studio da yangi loyiha yoki Billing kerak). "+msg.slice(0,90));
+   throw O.bad("AI vaqtincha band (limitga yetdi). 1 daqiqadan keyin qayta urinib ko'ring.");
+  }
   if(res.status===400||res.status===401||res.status===403){
    if(/api.?key|permission|invalid/i.test(msg))throw O.bad("Gemini API kaliti noto'g'ri yoki ruxsatsiz. Railway Variables dagi GEMINI_API_KEY ni tekshiring.");
   }
-  console.error('gemini',res.status,msg.slice(0,300));
   throw O.bad('AI xatosi: '+(msg.slice(0,120)||`HTTP ${res.status}`));
  }
  const parts=data?.candidates?.[0]?.content?.parts||[];
