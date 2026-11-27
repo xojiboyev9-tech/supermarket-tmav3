@@ -722,3 +722,10 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .kz-sec:first-of-type{margin-top:6px}
 .kz-sec .bento-sec-head{margin:0 0 11px}
 .kz-sec .bento-sec-head h2{font-size:21px;font-weight:800;letter-spacing:-.03em;color:#111827}
+
+/* Clickable bundle items & quick product camera */
+.bitem.clickable{cursor:pointer;border-radius:12px;margin:0 -6px;padding:8px 6px;transition:background .12s}
+.bitem.clickable:active{background:#F3F4F6}
+.bitem-arr{font-size:19px;font-weight:700;color:#9CA3AF;margin-left:2px;flex:none;line-height:1}
+.bitem-cam{position:absolute;right:-4px;bottom:-4px;width:22px;height:22px;border-radius:99px;background:#fff;border:1px solid rgba(17,24,39,.12);box-shadow:0 2px 6px rgba(0,0,0,.18);display:grid;place-items:center;font-size:11px;cursor:pointer}
+.bitem-l .ci.sm{width:50px;height:50px;border-radius:12px}

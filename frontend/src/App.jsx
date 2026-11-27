@@ -977,7 +977,9 @@ function Detail({p,d,cart,put,close,onWeight,initMode='view',onReload,onProductU
   </div></div>
 }
 
-function BundleDetail({b,cart,put,close}){
+function BundleDetail({b,d,cart,put,close,onOpenProduct,onReload,say}){
+  const isAdm=d?.role==='admin'||d?.role==='superadmin'
+  const [imgOverride,setImgOverride]=useState({})
   const {t,so,pn,bt,bdesc}=useLang()
   const p={...b,bundle:true,category:'Boshqa'}
   const it=cart[keyOf(p)]
@@ -998,19 +1000,38 @@ function BundleDetail({b,cart,put,close}){
 
     <h2 style={{marginTop:10,marginBottom:6}}>{t("Nabor tarkibi")} ({list.length||(b.parts||[]).length})</h2>
     <div className="bitem-list">
-      {list.length>0?list.map(x=><div className="bitem" key={x.id}>
-        <div className="bitem-l">
-          <Thumb p={{image:x.image,category:'Boshqa',age_min:x.age_min}} cls="ci sm"/>
-          <div style={{minWidth:0}}>
-            <b>{pn(x)}</b>
-            <span className="m">{so(x.price)}{x.unit==='weight'?' / kg':''}</span>
+      {list.length>0?list.map(x=>{
+        const curImg=imgOverride[x.id]??x.image
+        const prod={...x,image:curImg,category:x.category||'Boshqa'}
+        const pickPImg=async e=>{
+          e.stopPropagation()
+          const f=e.target.files?.[0];e.target.value='';if(!f)return
+          try{
+            const u=await upload(f)
+            await api(`/api/products/${x.id}/image`,'PUT',{image:u})
+            setImgOverride(m=>({...m,[x.id]:u}))
+            onReload&&onReload()
+            say&&say('Rasm saqlandi ✅')
+          }catch(er){say&&say(er.message)}
+        }
+        return <div className="bitem clickable" key={x.id} onClick={()=>{if(onOpenProduct){haptic('sel');onOpenProduct(prod)}}}>
+          <div className="bitem-l">
+            <div style={{position:'relative',flex:'none'}}>
+              <Thumb p={prod} cls="ci sm"/>
+              {isAdm&&<label className="bitem-cam" title="Rasm qo'yish" onClick={e=>e.stopPropagation()}>📷<input type="file" accept="image/*" hidden onChange={pickPImg}/></label>}
+            </div>
+            <div style={{minWidth:0}}>
+              <b>{pn(x)}</b>
+              <span className="m">{so(effPrice(prod))}{x.unit==='weight'?' / kg':''}</span>
+            </div>
           </div>
+          <div className="bitem-r">
+            <span className="bitem-qty">× {Number(x.qty)}</span>
+            <div className="m" style={{marginTop:2}}>{so(Math.round(effPrice(prod)*Number(x.qty)))}</div>
+          </div>
+          <span className="bitem-arr">›</span>
         </div>
-        <div className="bitem-r">
-          <span className="bitem-qty">× {Number(x.qty)}</span>
-          <div className="m" style={{marginTop:2}}>{so(Math.round(x.price*Number(x.qty)))}</div>
-        </div>
-      </div>):(b.parts||[]).map((pt,i)=><div className="bitem" key={i}><b>• {pt}</b></div>)}
+      }):(b.parts||[]).map((pt,i)=><div className="bitem" key={i}><b>• {pt}</b></div>)}
     </div>
 
     <div className="quick-qty">{[1,2,3,5].map(n=><button key={n} type="button" className={it?.qty===n?'on':''} onClick={()=>put(p,{qty:n})}>{n} {t("ta")}</button>)}</div>
@@ -1209,7 +1230,7 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
 
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}} onAdminOpen={isAdm?p=>{setDetMode('stats');setDet(p)}:undefined}/>}
     {det&&<Detail key={det.id+':'+detMode} p={det} d={d} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh} initMode={detMode} onReload={onReload} onProductUpdated={onProdUpd} say={say}/>}
-    {bdet&&<BundleDetail b={bdet} cart={cart} put={put} close={()=>setBdet(null)}/>}
+    {bdet&&<BundleDetail b={bdet} d={d} cart={cart} put={put} close={()=>setBdet(null)} onReload={onReload} say={say} onOpenProduct={prod=>{setBdet(null);openDetail(prod)}}/>}
     {posP&&<PosSheet p={posP.p} cur={posP.n} total={items.length+(more?'+':'')} cat={cat} close={()=>setPosP(null)} done={()=>{setPosP(null);load(0,true)}} say={say}/>}
     {vid&&<div className="sheet" onClick={()=>setVid(null)}><div onClick={e=>e.stopPropagation()}><div className="sheet-handle"/><div className="yt"><iframe src={`https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&playsinline=1&rel=0&origin=${encodeURIComponent(location.origin)}`} referrerPolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/></div><a className="btn g" style={{marginTop:10,display:'block',textAlign:'center',textDecoration:'none'}} href={`https://youtu.be/${vid}`} target="_blank" rel="noreferrer">YouTube ↗</a><button className="btn g" style={{marginTop:8}} onClick={()=>setVid(null)}>✕</button></div></div>}
   </>
@@ -2682,12 +2703,27 @@ function Content({d,act,onReload}){
       <textarea className="in" rows={2} placeholder={t("Описание набора (русский)")} value={bd.description_ru} onChange={e=>setBd({...bd,description_ru:e.target.value})}/>
       <input className="in" type="text" inputMode="numeric" placeholder="Nabor narxi" value={bd.price} onChange={e=>setBd({...bd,price:e.target.value.replace(/\D/g,'').replace(/^0+/,'')})}/>
       <input className="in" placeholder="Mahsulot qo'shish: nomini yozing" value={bq} onChange={e=>setBq(e.target.value)}/>
-      {res.map(p=><div className="row" key={p.id}><span className="row-txt">{p.name} <span className="m">{so(p.price)}</span></span><span className="row-acts"><button className="btn s g" onClick={()=>{setBd(b=>({...b,items:b.items.some(i=>i.productId===p.id)?b.items:[...b.items,{productId:p.id,name:p.name,price:p.price,qty:1}]}));setBq('')}}>+</button></span></div>)}
-      {bd.items.map(i=><div className="row" key={i.productId}><span className="row-txt">{i.name}</span><span className="row-acts"><input className="in" style={{width:64,margin:0,padding:8}} type="number" min="1" value={i.qty} onChange={e=>setBd({...bd,items:bd.items.map(x=>x.productId===i.productId?{...x,qty:e.target.value}:x)})}/><button className="btn s g" onClick={()=>setBd({...bd,items:bd.items.filter(x=>x.productId!==i.productId)})}>✕</button></span></div>)}
+      {res.map(p=><div className="row" key={p.id}><span className="gap" style={{alignItems:'center',flex:1,minWidth:0,flexWrap:'nowrap'}}><Thumb p={p} cls="ci sm"/><span className="row-txt">{p.name} <span className="m">{so(p.price)}</span></span></span><span className="row-acts"><button className="btn s g" onClick={()=>{setBd(b=>({...b,items:b.items.some(i=>i.productId===p.id)?b.items:[...b.items,{productId:p.id,name:p.name,price:p.price,image:p.image,category:p.category,qty:1}]}));setBq('')}}>+</button></span></div>)}
+      {bd.items.map(i=><div className="row" key={i.productId}><span className="gap" style={{alignItems:'center',flex:1,minWidth:0,flexWrap:'nowrap'}}><Thumb p={{image:i.image,category:i.category||'Boshqa'}} cls="ci sm"/><span className="row-txt">{i.name} <span className="m">{so(i.price)}</span></span></span><span className="row-acts"><input className="in" style={{width:64,margin:0,padding:8}} type="number" min="1" value={i.qty} onChange={e=>setBd({...bd,items:bd.items.map(x=>x.productId===i.productId?{...x,qty:e.target.value}:x)})}/><button className="btn s g" onClick={()=>setBd({...bd,items:bd.items.filter(x=>x.productId!==i.productId)})}>✕</button></span></div>)}
       {bd.items.length>0&&<div className="m">Alohida narxi: {so(bd.items.reduce((s,i)=>s+i.price*i.qty,0))}</div>}
       <div className="gap" style={{alignItems:'center',margin:'8px 0'}}>{bd.image&&<img src={bd.image} style={{width:48,height:48,borderRadius:10,objectFit:'cover'}}/>}<label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm<input type="file" accept="image/*" hidden onChange={img(setBd,bd)}/></label></div>
-      <button className="btn s" onClick={()=>go(async()=>{await api('/api/content/bundles','POST',bd);setBd({title:'',title_ru:'',description:'',description_ru:'',price:'',image:'',items:[]})},'Saqlandi')}>+ Nabor</button>
-      {c.bundles.map(x=>row('bundles',x,x.title+(x.title_ru?' / '+x.title_ru:'')+' · '+so(x.price)))}</div>
+      <div className="gap" style={{marginBottom:8}}>
+        <button className="btn s" onClick={()=>go(async()=>{if(bd.id)await api(`/api/content/bundles/${bd.id}`,'PUT',bd);else await api('/api/content/bundles','POST',bd);setBd({title:'',title_ru:'',description:'',description_ru:'',price:'',image:'',items:[]})},'Saqlandi')}>{bd.id?'✓ Nabor saqlash':'+ Nabor'}</button>
+        {bd.id&&<button className="btn s g" onClick={()=>setBd({title:'',title_ru:'',description:'',description_ru:'',price:'',image:'',items:[]})}>{t("Bekor")}</button>}
+      </div>
+      {c.bundles.map(x=><div className="cat-row-wrap" key={x.id}>
+        <div className="row">
+          <span className="gap" style={{alignItems:'center',flex:1,minWidth:0,flexWrap:'nowrap'}}>
+            <Thumb p={{image:x.image,category:'Boshqa'}} cls="ci sm"/>
+            <span className="row-txt"><b>{x.title}</b>{x.title_ru&&<span className="m"> / {x.title_ru}</span>}<div className="m">{so(x.price)} · {(x.items||[]).length} ta tovar</div></span>
+          </span>
+          <span className="row-acts">
+            <label className="sw"><input type="checkbox" checked={x.active} onChange={e=>go(()=>api(`/api/content/bundles/${x.id}/active`,'PUT',{active:e.target.checked}))}/><i/></label>
+            <button className="btn s g" onClick={()=>{setBd({id:x.id,title:x.title||'',title_ru:x.title_ru||'',description:x.description||'',description_ru:x.description_ru||'',price:String(x.price||''),image:x.image||'',items:(x.items||[]).map(it=>({...it,qty:Number(it.qty)||1}))});scrollTo({top:0,behavior:'smooth'})}}>✎</button>
+            <button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api(`/api/content/bundles/${x.id}`,'DELETE'))}>🗑</button>
+          </span>
+        </div>
+      </div>)}</div>
     <div className="card"><h2>▶ {t("Videolar")}</h2><input className="in" placeholder="Sarlavha" value={vd.title} onChange={e=>setVd({...vd,title:e.target.value})}/><input className="in" placeholder="YouTube havolasi" value={vd.url} onChange={e=>setVd({...vd,url:e.target.value})}/>
       <button className="btn s" onClick={()=>go(async()=>{await api('/api/content/videos','POST',vd);setVd({title:'',url:''})},'Saqlandi')}>+ Video</button>
       {c.videos.map(x=>row('videos',x,x.title||x.yt_id))}</div></>
