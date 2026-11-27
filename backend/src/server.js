@@ -56,6 +56,7 @@ const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and
 const PSEL='id,pos,category,name,name_uz,description,min_grams,min_sum,weight_g,priority,family,sales_count,unit,price,sale_price,sale_until,image,age_min';
 let pubCache=null,pubExp=0,pubPromise=null;
 const bustPub=()=>{pubCache=null;pubExp=0};
+const F=require('./features');
 AI.init({runBroadcast,bustPub});
 async function getPub(){
  if(pubCache&&pubExp>Date.now())return pubCache;
@@ -63,8 +64,9 @@ async function getPub(){
  pubPromise=(async()=>{
   const whR=await getSetting('warehouse');
   const whCond=whR.enabled?' and (stock is null or stock>0)':'';
-  const [dlR,anR,suR,bnR,bdR,vdR,ctR,scR,fmR,hsR,hhR]=await Promise.all([
+  const [dlR,ftR,anR,suR,bnR,bdR,vdR,ctR,scR,fmR,hsR,hhR]=await Promise.all([
    getSetting('delivery'),
+   F.get(),
    q("select value from settings where key='animation'"),
    q("select value from settings where key='support'"),
    q('select id,image,title,subtitle,link from banners where active order by sort,id'),
@@ -88,7 +90,8 @@ async function getPub(){
    saleCount:scR.rows[0].c,
    families:fmR.rows.map(r=>r.family),
    homeSales:hsR.rows,
-   homeHits:hhR.rows
+   homeHits:hhR.rows,
+   features:ftR
   };
   pubExp=Date.now()+30000;
   return pubCache;
@@ -167,7 +170,9 @@ app.get('/api/init',wrap(async(req,res)=>{
   lastSync:lsR?lsR.rows[0]?.value||null:null,
   syncKeySet:isAdm?Boolean(String(process.env.SYNC_API_KEY||'').trim()):false,
   ai:isAdm?{ready:AI.isReady(),canAi:AI.canAi(m),model:AI.modelName(),today:AI.getTodayStats()}:null,
-  settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
+  features:{...pub.features,storeOpen:F.isOpen(pub.features)},
+  featureRegistry:m.role==='superadmin'?F.registry():undefined,
+  settings:{deliveryEnabled:d.enabled&&pub.features.delivery,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
   cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,homeSales:pub.homeSales,homeHits:pub.homeHits,orders:ordR.rows,
   pendingProducts:ppR?ppR.rows:[],
   roles:rlR?rlR.rows:null,
@@ -250,6 +255,9 @@ app.put('/api/settings/support',need(...ADM),wrap(async(req,res)=>{const raw=Str
  const phone=String(req.body.phone||'').trim().slice(0,30);const v={username:raw,phone};await setSetting('support',v);bustPub();await audit(req.me.tg_id,'settings.support','settings',v);res.json(v)}));
 app.put('/api/settings/warehouse',need('superadmin'),wrap(async(req,res)=>{const v={enabled:!!req.body.enabled};await setSetting('warehouse',v);bustPub();
  await audit(req.me.tg_id,'settings.warehouse','settings',v);res.json(v)}));
+app.get('/api/features',need('superadmin'),wrap(async(req,res)=>res.json({features:await F.get(),registry:F.registry()})));
+app.put('/api/settings/features',need('superadmin'),wrap(async(req,res)=>{const old=await F.get(),v=await F.save(req.body||{});bustPub();
+ const changed=Object.keys(v).filter(k=>JSON.stringify(v[k])!==JSON.stringify(old[k]));await audit(req.me.tg_id,'settings.features','settings',{changed,new:v});res.json({features:v})}));
 app.put('/api/settings/animation',need('superadmin'),wrap(async(req,res)=>{const ok=['none','newyear','navruz','ramazon','autumn','confetti'];const preset=ok.includes(req.body.preset)?req.body.preset:'none';const v={preset};await setSetting('animation',v);bustPub();await audit(req.me.tg_id,'settings.animation','settings',v);res.json(v)}));
 app.post('/api/ai/chat',needAi,S.actionLimit('ai',15,60000),wrap(async(req,res)=>{
  const b=req.body||{};
@@ -429,6 +437,7 @@ app.post('/api/orders/:id/send-sub',need(...STAFF),wrap(async(req,res)=>res.json
 app.post('/api/orders/:id/sub-answer',wrap(async(req,res)=>{await O.subAnswer(req.me.tg_id,+req.params.id,!!req.body.accept);res.json({success:true})}));
 app.post('/api/orders/:id/edit-request',wrap(async(req,res)=>{await O.editRequest(req.me.tg_id,+req.params.id);res.json({success:true})}));
 app.post('/api/orders/:id/edit-decide',need(...STAFF),wrap(async(req,res)=>{await O.editDecide(req.me.tg_id,+req.params.id,!!req.body.allow);res.json({success:true})}));
+app.post('/api/orders/:id/cancel',S.actionLimit('ocancel',5,60000),wrap(async(req,res)=>res.json(await O.cancelByUser(req.me.tg_id,+req.params.id))));
 app.post('/api/orders/:id/edit-apply',wrap(async(req,res)=>{await O.editApply(req.me.tg_id,+req.params.id,req.body.changes);res.json({success:true})}));
 
 (async()=>{const port=process.env.PORT||8080;
