@@ -1097,20 +1097,6 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
   }
   const openDetail=p=>{haptic('sel');setDetMode('view');setDet(p)}
 
-  // Derive customer's frequently bought items from past valid orders
-  const buyAgain=(()=>{
-    const valid=(d.orders||[]).filter(o=>o.user_id==d.user?.telegramId&&o.status!=='cancelled')
-    const map=new Map()
-    for(const o of valid){
-      for(const i of (o.items||[])){
-        if(!i.product_id||i.active===false||!(i.cur_price||i.unit_price))continue
-        const cur=map.get(i.product_id)||{cnt:0,p:{id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0}}
-        cur.cnt+=Number(i.qty)||1
-        map.set(i.product_id,cur)
-      }
-    }
-    return [...map.values()].sort((a,b)=>b.cnt-a.cnt).slice(0,10).map(x=>x.p)
-  })()
   const homeSales=d.homeSales||[]
   const homeHits=d.homeHits||[]
 
@@ -1145,13 +1131,6 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
       {fams.length>0&&<div className="chips" style={{paddingTop:4}}>
         {fams.map(fm=><button key={fm} className="chip" onClick={()=>{setFam(fm);scrollTo({top:0,behavior:'smooth'})}}>⭐ {t(fm)}</button>)}
       </div>}
-
-      {F(d,'homeShelves')&&buyAgain.length>0&&<>
-        <div className="sec-head"><h2 className="sec">🔄 {t("Oldingi xaridingizdan")}</h2></div>
-        <div className="hrow shelf-row">
-          {buyAgain.map(p=><ProductCard key={'ba:'+p.id} p={p} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
-        </div>
-      </>}
 
       {F(d,'homeShelves')&&homeSales.length>0&&<>
         <div className="sec-head">
