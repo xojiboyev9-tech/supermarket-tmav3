@@ -707,3 +707,12 @@ h2{font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 10px}
 .ready-code-box{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#FFF1F2,#FFE4E6);border:1.5px dashed #FB7185;border-radius:14px;padding:10px 14px;margin:6px 0 10px}
 .ready-code-box span{font-size:12.5px;font-weight:700;color:#9F1239}
 .ready-code-box b{font-size:22px;font-weight:900;letter-spacing:2px;color:#E11D48;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* Feature Management & Closed Banner */
+.feat-hero{background:linear-gradient(135deg,#FFF1F2,#FFF7ED);border-color:#FECDD3}
+.feat-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid #F3F4F6}
+.feat-row:first-of-type{border-top:none}
+.feat-meta{flex:1;min-width:0}
+.feat-meta b{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px}
+.feat-hours{margin-top:8px;padding-top:10px;border-top:1px dashed #E5E7EB}
+.closed-banner{background:#FEF3C7;border-color:#FDE68A;color:#92400E;font-size:13.5px}

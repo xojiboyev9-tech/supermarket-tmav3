@@ -1,5 +1,6 @@
 // JOYI: backend/src/orders.js  (GitHub'da shu yo'l bilan yarating)
 const {pool,q,audit,getSetting,setSetting}=require('./db');
+const F=require('./features');
 let N={staff:async()=>{},user:async()=>{}};exports.setNotifier=n=>{N=n};
 const bad=m=>{const e=new Error(m);e.status=400;return e};
 const km=(a,b)=>{const r=x=>x*Math.PI/180,h=Math.sin(r(b.lat-a.lat)/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(r(b.lng-a.lng)/2)**2;return 12742*Math.asin(Math.sqrt(h))};
@@ -17,6 +18,10 @@ const normPhone=raw=>{const d=String(raw||'').replace(/\D/g,'');if(!d)return nul
 exports.normPhone=normPhone;
 exports.createOrder=async(me,b)=>{
  if(!Array.isArray(b.items)||!b.items.length||b.items.length>60)throw bad("Savat bo'sh");
+ const ff=await F.get();
+ if(!F.isOpen(ff))throw bad(`Do'kon hozir yopiq. Ish vaqti: ${ff.hours.from}–${ff.hours.to}`);
+ if(b.type==='delivery'&&!ff.delivery)throw bad("Yetkazib berish vaqtincha o'chirilgan");
+ const comment=ff.orderComment?String(b.comment||'').trim().slice(0,300)||null:null;
  const phone=me.phone||normPhone(b.phone);
  if(!phone)throw bad('Buyurtma berish uchun telefon raqamingizni kiriting');
  const wh=(await getSetting('warehouse')).enabled,c=await pool.connect();
@@ -43,7 +48,7 @@ exports.createOrder=async(me,b)=>{
   }
   const code=String(1000+Math.floor(Math.random()*9000));
   const cardNum=me.card_status==='active'&&me.card_number?me.card_number:null;
-  const o=(await c.query('insert into orders(code,user_id,name,phone,type,address,lat,lng,delivery_fee,subtotal,total,card_number) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10::int+$9::int,$11) returning *',[code,me.tg_id,me.name,phone,type,String(b.address||'').slice(0,300),b.lat||null,b.lng||null,fee,subtotal,cardNum])).rows[0];
+  const o=(await c.query('insert into orders(code,user_id,name,phone,type,address,lat,lng,delivery_fee,subtotal,total,card_number,comment) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10::int+$9::int,$11,$12) returning *',[code,me.tg_id,me.name,phone,type,String(b.address||'').slice(0,300),b.lat||null,b.lng||null,fee,subtotal,cardNum,comment])).rows[0];
   for(const [p,qty,sum] of lines){
    await c.query('insert into order_items(order_id,product_id,name,unit,unit_price,qty,ordered_sum) values($1,$2,$3,$4,$5,$6,$7)',[o.id,p.id,p.name,p.unit,p.price,qty,sum]);
    if(p.id)await c.query('update products set sales_count=coalesce(sales_count,0)+1 where id=$1',[p.id]);
@@ -250,7 +255,7 @@ exports.subAnswer=async(userId,id,yes)=>{
   await q("update order_items set product_id=$1,name=$2,unit=$3,unit_price=$4,qty=$5,ordered_sum=$6,actual_sum=null,sub_product_id=null,sub_name=null,sub_price=null,sub_unit=null,sub_status=null where id=$7",[i.sub_product_id,i.sub_name,i.sub_unit,i.sub_price,qty,sum,i.id])}
  const left=await recalc(id);if(left!==null)await q("update orders set status='preparing' where id=$1",[id]);
  await audit(userId,yes?'order.sub_accepted':'order.sub_rejected','order:'+id);N.subDone(o,yes)};
-exports.editRequest=async(userId,id)=>{const o=(await q('select * from orders where id=$1 and user_id=$2',[id,userId])).rows[0];
+exports.editRequest=async(userId,id)=>{if(!(await F.get()).orderEdit)throw bad("Buyurtmani o'zgartirish vaqtincha o'chirilgan");const o=(await q('select * from orders where id=$1 and user_id=$2',[id,userId])).rows[0];
  if(!o||!['new','accepted','preparing'].includes(o.status)||o.edit_state)throw bad("So'rab bo'lmaydi");
  await q("update orders set edit_state='requested' where id=$1",[id]);await audit(userId,'order.edit_requested','order:'+id);N.editRequested(o)};
 exports.editDecide=async(actor,id,allow)=>{const o=(await q("select * from orders where id=$1 and edit_state='requested'",[id])).rows[0];if(!o)throw bad("So'rov topilmadi");
@@ -296,8 +301,21 @@ exports.editApply=async(userId,id,changes)=>{
   else{const sub=items.reduce((s,i)=>s+(i.actual_sum??i.ordered_sum),0);await cl.query('update orders set subtotal=$1,total=$1+delivery_fee where id=$2',[sub,id])}
   await cl.query('commit');
   await audit(userId,'order.edited','order:'+id);
+   const no=(await q('select * from orders where id=$1',[id])).rows[0];
+   try{N.orderEdited&&N.orderEdited(no||o,items)}catch(_){}
  }catch(e){await cl.query('rollback');throw e}finally{cl.release()}
 };
+/* Customer cancels own order while it is still new (not yet accepted by staff). */
+exports.cancelByUser=async(userId,id)=>{if(!(await F.get()).orderCancel)throw bad("Bekor qilish vaqtincha o'chirilgan");
+ const c=await pool.connect();let o;
+ try{await c.query('begin');
+  o=(await c.query('select * from orders where id=$1 and user_id=$2 for update',[id,userId])).rows[0];
+  if(!o)throw bad('Buyurtma topilmadi');
+  if(!['new','age_check','confirm_pending','sub_pending'].includes(o.status))throw bad("Buyurtma qabul qilingan — bekor qilish uchun do'konga murojaat qiling");
+  await c.query("update orders set status='cancelled',edit_state=null where id=$1",[id]);await restock(id,c);await c.query('commit');
+ }catch(e){await c.query('rollback').catch(()=>{});throw e}finally{c.release()}
+ await audit(userId,'order.cancelled_by_user','order:'+id);try{N.userCancelled&&N.userCancelled(o)}catch(_){}
+ return{success:true}};
 exports.bad=bad;
                                                                                                                                                                  
 /* Move one id to 1-based position `pos` inside an ordered id list (others shift). */

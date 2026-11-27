@@ -100,8 +100,14 @@ const RU={
   "Standart":"Стандарт","Mashhur":"Популярные","Arzonroq":"Дешевле","Qimmatroq":"Дороже",
   "Bepul yetkazib berish!":"Бесплатная доставка!","Yetkazib berish mumkin!":"Доставка доступна!",
   "Bepul yetkazishgacha":"До бесплатной доставки","Minimal buyurtmagacha":"До минимального заказа",
-  "Barcha mahsulotlar ko'rsatildi":"Показаны все товары","dona":"шт"
+  "Barcha mahsulotlar ko'rsatildi":"Показаны все товары","dona":"шт",
+  "Funksiyalar":"Функции","Funksiyalar boshqaruvi":"Управление функциями",
+  "Buyurtmaga izoh (ixtiyoriy)":"Комментарий к заказу (необязательно)",
+  "Do'kon hozir yopiq":"Магазин сейчас закрыт","Ish vaqti":"Часы работы",
+  "Ulashish":"Поделиться","Buyurtmani bekor qilish":"Отменить заказ",
+  "Buyurtmani bekor qilasizmi?":"Отменить заказ?","Barchasini yoqish":"Включить все"
 }
+const F=(d,k)=>d?.features?.[k]!==false
 
 const FAM_PRESETS=['Kundalik ehtiyoj','Nonushta','Oilaviy','Bolalar uchun','Bayramona','Premium']
 const parseSyncCsv=txt=>{
@@ -891,7 +897,7 @@ function Detail({p,d,cart,put,close,onWeight,initMode='view',onReload,onProductU
 
     {mode==='view'&&<>
       <div style={{position:'relative'}}><Thumb p={curP} cls="dimg" hideSale/>{on&&<span className="disc" style={{fontSize:13,padding:'4px 10px'}}>−{pct}%</span>}</div>
-      <h2 style={{marginTop:12,fontSize:18}}>{pn(curP)}</h2>
+      <div className="row" style={{marginTop:12,alignItems:'flex-start',gap:8}}><h2 style={{margin:0,fontSize:18,flex:1}}>{pn(curP)}</h2>{F(d,'share')&&<button type="button" className="btn s g" onClick={()=>{const txt=`🛍 ${pn(curP)} — ${so(effPrice(curP))}${curP.unit==='weight'?' / kg':''} (TEGEN Market)`;const u=`https://t.me/share/url?url=${encodeURIComponent(location.origin)}&text=${encodeURIComponent(txt)}`;if(tg?.openTelegramLink)tg.openTelegramLink(u);else if(navigator.share)navigator.share({text:txt}).catch(()=>{});else copyText(txt,()=>say&&say(t("Nusxalandi ✅")))}}>📤 {t("Ulashish")}</button>}</div>
       <PriceTag p={curP} big/>
       {on&&curP.sale_until&&<Countdown until={curP.sale_until} mode="blocks"/>}
       <div className="gap" style={{margin:'8px 0'}}>
@@ -1093,13 +1099,13 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
         <input className="search" placeholder={t("Mahsulot qidirish...")} value={q} onFocus={()=>setQFocus(true)} onBlur={()=>setTimeout(()=>setQFocus(false),160)} onChange={e=>setQ(e.target.value)}/>
         {q&&<button className="search-clr" onClick={()=>setQ('')}>✕</button>}
       </div>
-      <button type="button" className={'fav-pill'+(favView?' on':'')} onClick={()=>{haptic('light');setQ('');setCat('');setFam('');setSort('');setFavView(v=>!v)}} title={t("Sevimlilar")}>
+      {F(d,'favorites')&&<button type="button" className={'fav-pill'+(favView?' on':'')} onClick={()=>{haptic('light');setQ('');setCat('');setFam('');setSort('');setFavView(v=>!v)}} title={t("Sevimlilar")}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill={favView||favs.length?'currentColor':'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
         {favs.length>0&&<span>{favs.length}</span>}
-      </button>
+      </button>}
     </div>
 
-    {qFocus&&!q&&<div className="q-suggest" onMouseDown={e=>e.preventDefault()}>
+    {F(d,'searchHints')&&qFocus&&!q&&<div className="q-suggest" onMouseDown={e=>e.preventDefault()}>
       {qHist.length>0&&<div className="qs-sec">
         <div className="qs-head"><span>🕒 {t("Oxirgi qidiruvlar")}</span><button type="button" onClick={()=>{setQHist([]);saveSearchHist([])}}>{t("Tozalash")}</button></div>
         <div className="qs-chips">{qHist.map(h=><button key={h} type="button" className="qs-chip" onClick={()=>{setQ(h);setQFocus(false)}}>{h}</button>)}</div>
@@ -1110,46 +1116,47 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
       </div>
     </div>}
 
+    {d.features?.workingHours&&d.features?.storeOpen===false&&<div className="card closed-banner">🌙 <b>{t("Do'kon hozir yopiq")}</b> · {t("Ish vaqti")}: {d.features?.hours?.from||'08:00'}–{d.features?.hours?.to||'22:00'}</div>}
     {home?<>
-      {d.banners.length>0&&<HeroBanners banners={d.banners} onOpen={openLink}/>}
+      {F(d,'banners')&&d.banners.length>0&&<HeroBanners banners={d.banners} onOpen={openLink}/>}
 
       {fams.length>0&&<div className="chips" style={{paddingTop:4}}>
         {fams.map(fm=><button key={fm} className="chip" onClick={()=>{setFam(fm);scrollTo({top:0,behavior:'smooth'})}}>⭐ {t(fm)}</button>)}
       </div>}
 
-      {buyAgain.length>0&&<>
+      {F(d,'homeShelves')&&buyAgain.length>0&&<>
         <div className="sec-head"><h2 className="sec">🔄 {t("Oldingi xaridingizdan")}</h2></div>
         <div className="hrow shelf-row">
-          {buyAgain.map(p=><ProductCard key={'ba:'+p.id} p={p} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
+          {buyAgain.map(p=><ProductCard key={'ba:'+p.id} p={p} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
         </div>
       </>}
 
-      {homeSales.length>0&&<>
+      {F(d,'homeShelves')&&homeSales.length>0&&<>
         <div className="sec-head">
           <h2 className="sec">🔥 {t("Qaynoq aksiyalar")}</h2>
           {goTab&&<button type="button" className="sec-link" onClick={()=>{goTab('promo');scrollTo({top:0,behavior:'smooth'})}}>{t("Hammasi")} →</button>}
         </div>
         <div className="hrow shelf-row">
-          {homeSales.map(p=><ProductCard key={'hs:'+p.id} p={p} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
+          {homeSales.map(p=><ProductCard key={'hs:'+p.id} p={p} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
         </div>
       </>}
 
-      {d.videos.length>0&&<>
+      {F(d,'videos')&&d.videos.length>0&&<>
         <div className="sec-head"><h2 className="sec">▶ {t("Yangiliklar")}</h2></div>
         <div className="hrow">{d.videos.map(v=><div className="vid" key={v.id} onClick={()=>setVid(v.yt_id)} style={{backgroundImage:`url(https://img.youtube.com/vi/${v.yt_id}/hqdefault.jpg)`}}><b>▶</b><span>{v.title}</span></div>)}</div>
       </>}
 
-      {d.bundles.length>0&&<>
+      {F(d,'bundles')&&d.bundles.length>0&&<>
         <div className="sec-head"><h2 className="sec">🎁 {t("Naborlar")}</h2></div>
         <BundleCarousel bundles={d.bundles} onOpen={setBdet} actionBtn={actionBtn}/>
       </>}
 
       <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
 
-      {homeHits.length>0&&<>
+      {F(d,'homeShelves')&&homeHits.length>0&&<>
         <div className="sec-head"><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
         <div className="grid">
-          {homeHits.map((p,i)=><ProductCard key={'hh:'+p.id} p={p} idx={i} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn}/>)}
+          {homeHits.map((p,i)=><ProductCard key={'hh:'+p.id} p={p} idx={i} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn}/>)}
         </div>
       </>}
     </>:<>
@@ -1183,14 +1190,14 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
         {fams.map(fm=><button key={fm} className={'chip'+(fam===fm?' on':'')} onClick={()=>setFam(fm)}>⭐ {t(fm)}</button>)}
       </div>}
 
-      <div className="sort-bar">
+      {F(d,'sorting')&&<div className="sort-bar">
         {[['','✨ '+t("Standart")],['pop','🔥 '+t("Mashhur")],['cheap','💰 '+t("Arzonroq")],['exp','💎 '+t("Qimmatroq")],['sale','🏷 '+t("Aksiya")]].map(([k,l])=>
           <button key={k} type="button" className={'sort-chip'+(sort===k?' on':'')} onClick={()=>{haptic('sel');setSort(k)}}>{l}</button>
         )}
-      </div>
+      </div>}
 
       {loading&&!items.length?<SkeletonGrid count={6}/>:<div className="grid">
-        {items.map((p,i)=><ProductCard key={p.id} p={p} idx={i} canPos={canPos} onPos={setPosP} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn}/>)}
+        {items.map((p,i)=><ProductCard key={p.id} p={p} idx={i} canPos={canPos} onPos={setPosP} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn}/>)}
       </div>}
       {!loading&&!items.length&&<div className="empty-box">
         <span>{favView?'❤️':'🔍'}</span>
@@ -1357,7 +1364,7 @@ function Promo({d,cart,setCart,favs,toggleFav,onReload,say}){
       )}
     </div>
     {loading&&!items.length?<SkeletonGrid count={6}/>:<div className="grid">
-      {items.map((p,i)=><ProductCard key={p.id} p={p} idx={i} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn}/>)}
+      {items.map((p,i)=><ProductCard key={p.id} p={p} idx={i} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn}/>)}
     </div>}
     {!loading&&!items.length&&<div className="empty-box"><span>🏷</span><b>{t("Hozircha aksiya mahsulotlari yo'q")}</b></div>}
     <AutoMore more={more} loading={loading} onMore={()=>load(pg+1,false)}/>
@@ -1379,7 +1386,7 @@ function Catalog({d,go,onReload,say}){
 function DeliveryMeter({d,sub}){
   const {t,so}=useLang()
   const dl=d.settings?.delivery
-  if(!dl?.enabled)return null
+  if(!dl?.enabled||!F(d,'delivery')||!F(d,'deliveryMeter'))return null
   const minT=Number(dl.minTotal)||0
   const freeT=Number(d.settings?.freeDeliveryThreshold)
   const useMin=minT>0
@@ -1399,7 +1406,7 @@ function DeliveryMeter({d,sub}){
 
 function Cart({d,cart,setCart,act,done,onReload}){
   const {t,so,pn}=useLang()
-  const [type,setType]=useState('pickup'),[addr,setAddr]=useState(''),[phone,setPhone]=useState(''),[rec,setRec]=useState([]),[sh,setSh]=useState(null)
+  const [type,setType]=useState('pickup'),[addr,setAddr]=useState(''),[phone,setPhone]=useState(''),[comment,setComment]=useState(''),[rec,setRec]=useState([]),[sh,setSh]=useState(null)
   const lines=Object.entries(cart).map(([k,v])=>({k,p:v.p,v})),dl=d.settings.delivery
   const sub=lines.reduce((s,{p,v})=>s+lsum(p,v),0),age=Math.max(0,...lines.map(l=>l.p.age_min||0))
   const estKg=lines.reduce((w,{p,v})=>{
@@ -1419,7 +1426,8 @@ function Cart({d,cart,setCart,act,done,onReload}){
   const phoneOk=!needPhone||phone.replace(/\D/g,'').length>=9
   const minT=dl.minTotal||0,maxKg=Number(dl.maxKg)||0,overKg=type==='delivery'&&maxKg>0&&estKg>maxKg
   const addrOk=addr.trim().length>=2
-  const ok=phoneOk&&(type==='pickup'||(sub>=minT&&!overKg&&addrOk))
+  const closed=d.features?.workingHours&&d.features?.storeOpen===false
+  const ok=!closed&&phoneOk&&(type==='pickup'||(sub>=minT&&!overKg&&addrOk))
   return <>
     <h1>{t("Savat")}</h1>
     <DeliveryMeter d={d} sub={sub}/>
@@ -1441,7 +1449,7 @@ function Cart({d,cart,setCart,act,done,onReload}){
       </div>)}
     </div>
 
-    {rec.length>0&&<>
+    {F(d,'recommendations')&&rec.length>0&&<>
       <div className="sec-head"><h2 className="sec">{t("Yana nimadir olasizmi?")}</h2></div>
       <div className="hrow">{rec.map(p=><div className="card bun" style={{flex:'0 0 144px',width:144}} key={p.id}>
         <Thumb p={p}/>
@@ -1454,7 +1462,7 @@ function Cart({d,cart,setCart,act,done,onReload}){
     </>}
 
     <div className="seg"><button className={type==='pickup'?'on':''} onClick={()=>setType('pickup')}>{t("🏃 Olib ketish")}</button>
-      {dl.enabled&&<button className={type==='delivery'?'on':''} onClick={()=>setType('delivery')}>{t("🚚 Yetkazib berish")}</button>}</div>
+      {dl.enabled&&F(d,'delivery')&&<button className={type==='delivery'?'on':''} onClick={()=>setType('delivery')}>{t("🚚 Yetkazib berish")}</button>}</div>
     {type==='delivery'&&<div className="card">
       {(()=>{const past=[...new Set([...loadAddrs(),...d.orders.filter(o=>o.user_id==d.user.telegramId&&o.type==='delivery'&&o.address).map(o=>o.address.trim())])].filter(Boolean).slice(0,5);return past.length>0&&<div className="addr-pick">{past.map(a=><button key={a} type="button" className={'chip'+(addr===a?' on':'')} onClick={()=>setAddr(a)}>📍 {a.length>26?a.slice(0,26)+'…':a}</button>)}</div>})()}
       <textarea className="in" rows={2} placeholder={t("Manzil (ko'cha, uy, mo'ljal)")} value={addr} onChange={e=>setAddr(e.target.value)}/>
@@ -1464,6 +1472,8 @@ function Cart({d,cart,setCart,act,done,onReload}){
       {overKg&&<div style={{color:'#BE123C',fontSize:13,marginTop:4,fontWeight:600}}>⚖️ Yetkazib berish limiti {maxKg} kg (hozir ~{estKg.toFixed(2)} kg). Ba'zi tovarlarni kamaytiring yoki olib ketishni tanlang.</div>}
     </div>}
 
+    {F(d,'orderComment')&&<div className="card"><input className="in" style={{marginBottom:0}} maxLength={300} placeholder={'💬 '+t("Buyurtmaga izoh (ixtiyoriy)")} value={comment} onChange={e=>setComment(e.target.value)}/></div>}
+    {closed&&<div className="card closed-banner">🌙 <b>{t("Do'kon hozir yopiq")}</b> · {t("Ish vaqti")}: {d.features?.hours?.from||'08:00'}–{d.features?.hours?.to||'22:00'}</div>}
     {needPhone&&<div className="card" style={{background:'#FFF7F8',borderColor:'#FECDD3'}}>
       <h2 style={{marginBottom:4}}>📱 {t("Telefon raqam")}</h2>
       <div className="m" style={{marginBottom:8}}>{t("Bir marta kiritiladi — keyingi buyurtmalarda so'ralmaydi")}</div>
@@ -1479,7 +1489,7 @@ function Cart({d,cart,setCart,act,done,onReload}){
       {age>0&&<div className="m">{t("🔞 Yosh tasdig'i botda so'raladi.")}</div>}</div>
     <button className="btn" disabled={!ok} onClick={()=>act(async()=>{
       if(type==='delivery'&&addr.trim().length>=2){const cur=loadAddrs();if(!cur.includes(addr.trim()))saveAddrs([addr.trim(),...cur])}
-      await api('/api/orders','POST',{items:lines.map(({p,v})=>p.bundle?{bundleId:p.id,qty:v.qty}:{productId:p.id,...(v.sum?{sum:v.sum}:v.grams?{grams:v.grams}:{qty:v.qty})}),type,address:addr,...(needPhone?{phone}:{})});setCart({});done()
+      await api('/api/orders','POST',{items:lines.map(({p,v})=>p.bundle?{bundleId:p.id,qty:v.qty}:{productId:p.id,...(v.sum?{sum:v.sum}:v.grams?{grams:v.grams}:{qty:v.qty})}),type,address:addr,comment:comment.trim()||undefined,...(needPhone?{phone}:{})});setCart({});setComment('');done()
     },'Buyurtma yuborildi ✅')}>{t("Buyurtma berish")}</button>
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}}/>}
   </>
@@ -1502,7 +1512,7 @@ function OrderTracker({status}){
   </div>
 }
 
-function Orders({d,act}){
+function Orders({d,act,onReorder}){
   const {t,so}=useLang()
   const [ed,setEd]=useState(null),[wsh,setWsh]=useState(null)
   const mine=d.orders.filter(o=>o.user_id==d.user.telegramId),post=(o,p,b,m)=>act(()=>api(`/api/orders/${o.id}/${p}`,'POST',b),m)
@@ -1525,7 +1535,7 @@ function Orders({d,act}){
     return <div className="card ord-card" key={o.id}>
       <div className="row" style={{marginTop:0}}><b>#{o.id}</b><Badge s={o.status}/></div>
       {o.created_at&&<div className="m" style={{marginBottom:6}}>{fmtDt(o.created_at)}</div>}
-      <OrderTracker status={o.status}/>
+      {F(d,'orderTracker')&&<OrderTracker status={o.status}/>}
       {o.status==='ready'&&o.code&&<div className="ready-code-box">
         <span>{t("Olib ketish kodi")}</span>
         <b>{o.code}</b>
@@ -1553,13 +1563,18 @@ function Orders({d,act}){
           ):<span className="m">{so(curSum)}</span>}
         </div>
       })}
+      {o.comment&&<div className="m" style={{marginTop:4}}>💬 {o.comment}</div>}
       <div className="row"><span>{o.type==='delivery'?'🚚 '+t("Yetkazib berish"):t("🏃 Olib ketish")}</span><b>{so(o.total)}</b></div>
       {o.type==='delivery'&&o.status==='new'&&<div className="m">📞 Administrator siz bilan bog'lanadi</div>}
       {o.status==='awaiting_confirm'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>⚖️ Tortgandan so'ng narx o'zgardi. Yangi mahsulotlar jami: <b>{so(o.pending_subtotal)}</b></div>
         <div className="gap"><button className="btn k" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:true},'Tasdiqlandi')}>{t("Roziman")}</button><button className="btn g" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:false},'Bekor qilindi')}>{t("Bekor qilish")}</button></div></>}
       {o.status==='sub_pending'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>🔁 Almashtirish taklifi:{o.items.filter(i=>i.sub_status==='proposed').map(i=><div key={i.id}>{i.name} → <b>{i.sub_name}</b> ({so(i.sub_price)})</div>)}</div>
         <div className="gap"><button className="btn k" style={{flex:1}} onClick={()=>post(o,'sub-answer',{accept:true},'Tasdiqlandi')}>{t("Roziman")}</button><button className="btn g" style={{flex:1}} onClick={()=>post(o,'sub-answer',{accept:false},'Shunsiz davom etamiz')}>Shunsiz davom</button></div></>}
-      {['new','accepted','preparing'].includes(o.status)&&!o.edit_state&&<button className="btn s g" onClick={()=>post(o,'edit-request',{},"So'rov yuborildi")}>✏️ O'zgartirishni so'rash</button>}
+      <div className="gap" style={{marginTop:6}}>
+        {F(d,'orderEdit')&&['new','accepted','preparing'].includes(o.status)&&!o.edit_state&&<button className="btn s g" onClick={()=>post(o,'edit-request',{},"So'rov yuborildi")}>✏️ O'zgartirishni so'rash</button>}
+        {F(d,'orderCancel')&&['new','age_check','confirm_pending','sub_pending'].includes(o.status)&&<button className="btn s g" style={{color:'#BE123C'}} onClick={()=>{if(confirm(t("Buyurtmani bekor qilasizmi?")))post(o,'cancel',{},'Bekor qilindi')}}>✕ {t("Buyurtmani bekor qilish")}</button>}
+        {F(d,'reorder')&&onReorder&&['completed','cancelled'].includes(o.status)&&<button className="btn s g" onClick={()=>onReorder(o)}>🔁 {t("Qayta buyurtma")}</button>}
+      </div>
       {o.edit_state==='requested'&&<div className="m">⏳ Administrator ruxsatini kutyapmiz</div>}
       {o.edit_state==='allowed'&&(isEd
         ?<div className="gap" style={{marginTop:8}}>
@@ -1713,7 +1728,7 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act,onReload}){
       </div>
     </div>
 
-    <DiscountCardSection d={d} act={act} say={say} onReload={onReload}/>
+    {F(d,'discountCards')&&<DiscountCardSection d={d} act={act} say={say} onReload={onReload}/>}
 
     {staff&&<button className="btn" style={{marginBottom:12}} onClick={()=>go('admin')}>⚙️ {t("Boshqaruv")}</button>}
 
@@ -1762,7 +1777,7 @@ function Profile({d,go,onToggleLang,cart,setCart,say,act,onReload}){
             {o.address&&<div className="m" style={{marginTop:6}}>📍 {o.address}</div>}
             {o.status==='ready'&&<div className="row" style={{marginTop:6}}><span>{t("Olib ketish kodi")}</span><b style={{color:'var(--b)',fontSize:17}}>{o.code}</b></div>}
             <div className="gap" style={{marginTop:10}}>
-              <button className="btn s" style={{flex:1}} onClick={()=>reorder(o)}>🔁 {t("Qayta buyurtma")}</button>
+              {F(d,'reorder')&&<button className="btn s" style={{flex:1}} onClick={()=>reorder(o)}>🔁 {t("Qayta buyurtma")}</button>}
               <button className="btn s g" onClick={()=>go('orders')}>{t("Barcha buyurtmalar")} ›</button>
             </div>
           </div>}
@@ -1927,13 +1942,14 @@ function AdminOrders({d,act,say,initFilter}){
   return <><div className="chips">{['all','new','accepted','preparing','sub_pending','ready','completed','cancelled'].map(k=><button key={k} className={'chip'+(f===k?' on':'')} onClick={()=>setF(k)}>{k==='all'?t("Hammasi"):t(ST[k][0])}</button>)}</div>
   {list.map(o=><div className="card" key={o.id}>
     <div className="row"><b>#{o.id} · {o.code}</b><Badge s={o.status}/></div><div className="m">{o.name} · {o.type==='delivery'?'🚚 '+o.address:'🏃 olib ketish'}</div>
+    {o.comment&&<div className="m" style={{color:'#92400E',background:'#FFFBEB',padding:'4px 8px',borderRadius:8,marginTop:4}}>💬 {o.comment}</div>}
     <div className="gap" style={{alignItems:'center',margin:'6px 0'}}>
       <a className="btn s g" style={{textDecoration:'none'}} href={`tel:+${o.phone}`}>📞 +{o.phone}</a>
       {o.card_number&&<button type="button" className="order-card-pill" onClick={()=>copyText(o.card_number,()=>say(t("Nusxalandi ✅")))}>💳 {o.card_number} (2%) 📋</button>}
     </div>
     {o.items.map(i=><div key={i.id}><div className="row"><span className="gap" style={{alignItems:'center',flexWrap:'nowrap'}}><Thumb p={{image:i.image,category:'Boshqa'}} cls="ci sm"/><span style={{fontSize:13}}>{i.name}{i.unit==='weight'?` (${Number(i.qty).toFixed(3)} kg)`:` × ${Number(i.qty)}`}{i.sub_status==='proposed'&&<b style={{color:'#B45309'}}> → {i.sub_name}</b>}</span></span>
       {i.unit==='weight'&&['accepted','preparing'].includes(o.status)?<input className="in" style={{width:100,margin:0,padding:8}} type="number" placeholder={i.ordered_sum} value={w[i.id]??''} onChange={e=>setW({...w,[i.id]:e.target.value})}/>:<b>{so(i.actual_sum??i.ordered_sum)}</b>}
-      {['accepted','preparing'].includes(o.status)&&<button className="btn s g" title="Almashtirish" onClick={()=>{setSub({o:o.id,i:i.id});setSq('')}}>🔁</button>}</div>
+      {F(d,'substitution')&&['accepted','preparing'].includes(o.status)&&<button className="btn s g" title="Almashtirish" onClick={()=>{setSub({o:o.id,i:i.id});setSq('')}}>🔁</button>}</div>
       {sub?.i===i.id&&<div className="card" style={{background:'#F9FAFB'}}><input className="in" autoFocus placeholder="Muqobil mahsulot nomi yoki shtrixkod" value={sq} onChange={e=>setSq(e.target.value)}/>{res.map(p=><div className="row" key={p.id}><span style={{fontSize:13}}>{p.name} <span className="m">{so(p.price)}</span></span><button className="btn s" onClick={()=>act(async()=>{await api(`/api/orders/${o.id}/substitute`,'POST',{itemId:i.id,productId:p.id});setSub(null)},'Tanlandi')}>✓</button></div>)}</div>}</div>)}
     <div className="row"><span>{t("Jami")}</span><b>{so(o.total)}</b></div>
     {o.type==='delivery'&&o.status==='new'&&<input className="in" type="text" inputMode="numeric" placeholder="Yetkazish narxi (so'm, ixtiyoriy)" value={fee[o.id]||''} onChange={e=>setFee({...fee,[o.id]:digits(e.target.value)})}/>}
@@ -2835,7 +2851,7 @@ function AdminSecurity({act,say}){
   </>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','role.ai':'🤖 AI yordamchi ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.cancelled_by_user':'Mijoz bekor qildi','order.edited':"Mijoz buyurtmani o'zgartirdi",'order.edit_requested':"O'zgartirish so'raldi",'order.edit_allowed':"O'zgartirishga ruxsat",'order.edit_denied':"O'zgartirish rad etildi",'settings.features':'🧩 Funksiyalar boshqaruvi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','role.ai':'🤖 AI yordamchi ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
 const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category|ai)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
@@ -2851,16 +2867,68 @@ function Audit(){
   </>
 }
 
+const FGROUP_LBL={shop:['🛍',"Do'kon va vitrina"],order:['📦','Buyurtma va yetkazish'],loyalty:['💳','Sodiqlik va aksiya'],admin:['⚙️','Admin vositalari']}
+function AdminFeatures({d,act,say,onReload}){
+  const {lang,t}=useLang()
+  const reg=d.featureRegistry||[]
+  const [f,setF]=useState(()=>d.features||{})
+  const [hrs,setHrs]=useState(()=>d.features?.hours||{from:'08:00',to:'22:00'})
+  const [busyKey,setBusyKey]=useState('')
+  useEffect(()=>{if(d.features){setF(d.features);if(d.features.hours)setHrs(d.features.hours)}},[d.features])
+  const toggle=async(k,val)=>{
+    const next={...f,[k]:val,hours:hrs};setF(next);setBusyKey(k)
+    try{const r=await api('/api/settings/features','PUT',{[k]:val});setF(r.features);onReload&&onReload();say(val?'Yoqildi ✅':"O'chirildi")}
+    catch(e){say(e.message)}
+    setBusyKey('')
+  }
+  const saveHours=()=>act(async()=>{const r=await api('/api/settings/features','PUT',{hours:hrs});setF(r.features)},'Ish vaqti saqlandi ✅')
+  const enableAll=()=>act(async()=>{const patch=Object.fromEntries(reg.map(r=>[r.key,r.key==='workingHours'?false:true]));const r=await api('/api/settings/features','PUT',patch);setF(r.features)},'Barchasi yoqildi ✅')
+  const groups=['shop','order','loyalty','admin']
+  const total=reg.length,onCnt=reg.filter(r=>f[r.key]!==false).length
+  return <>
+    <div className="card feat-hero">
+      <div className="row" style={{margin:0}}>
+        <div><h2 style={{margin:0}}>🧩 {t("Funksiyalar boshqaruvi")}</h2><div className="m">Faol: <b>{onCnt}</b> / {total} ta modul</div></div>
+        <button type="button" className="btn s g" onClick={enableAll}>✓ {t("Barchasini yoqish")}</button>
+      </div>
+    </div>
+    {groups.map(gk=>{
+      const items=reg.filter(r=>r.group===gk);if(!items.length)return null
+      const [ico,gl]=FGROUP_LBL[gk]||['🧩',gk]
+      return <div className="card" key={gk}>
+        <h2 style={{marginBottom:8}}>{ico} {t(gl)}</h2>
+        {items.map(r=>{
+          const on=f[r.key]!==false
+          return <div className="feat-row" key={r.key}>
+            <div className="feat-meta">
+              <b>{lang==='ru'?r.ru:r.uz} <span className={'badge '+(on?'green':'gray')}>{on?'Faol':'Nofaol'}</span></b>
+              <div className="m">{r.desc}</div>
+            </div>
+            <label className="sw"><input type="checkbox" disabled={busyKey===r.key} checked={on} onChange={e=>toggle(r.key,e.target.checked)}/><i/></label>
+          </div>
+        })}
+        {gk==='order'&&f.workingHours&&<div className="feat-hours">
+          <div className="gap" style={{alignItems:'center'}}>
+            <label className="m" style={{flex:1}}>Ochilish<input className="in" style={{marginBottom:0}} type="time" value={hrs.from} onChange={e=>setHrs({...hrs,from:e.target.value})}/></label>
+            <label className="m" style={{flex:1}}>Yopilish<input className="in" style={{marginBottom:0}} type="time" value={hrs.to} onChange={e=>setHrs({...hrs,to:e.target.value})}/></label>
+            <button type="button" className="btn s" style={{marginTop:14}} onClick={saveHours}>{t("Saqlash")}</button>
+          </div>
+        </div>}
+      </div>
+    })}
+  </>
+}
+
 function Admin({d,act,say,onReload,onPreviewAnim}){
   const {t}=useLang()
-  const isW=d.role==='worker',canBc=d.role==='superadmin'||!!d.user.canBroadcast
+  const isW=d.role==='worker',isSA=d.role==='superadmin',canBc=F(d,'broadcast')&&(isSA||!!d.user.canBroadcast)
   const prodLbl=t('Tovarlar')+(d.setupCount?` (🆕 ${d.setupCount})`:'')
-  const tabs=isW?[['p',prodLbl]]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p',prodLbl],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],...(canBc?[['b','Xabarlar']]:[]),['m','Mijozlar'],['x',t('Xavfsizlik')+(d.blockedCount?` (${d.blockedCount})`:'')],['c','Kontent'],['s','Sozlamalar'],['a','Audit']]
+  const tabs=isW?[['p',prodLbl]]:d.role==='operator'?[['o','Buyurtmalar']]:[['d','Statistika'],['o','Buyurtmalar'],['p',prodLbl],['k',t('Kartalar')+(d.pendingCardsCount?` (${d.pendingCardsCount})`:'')],...(canBc?[['b','Xabarlar']]:[]),['m','Mijozlar'],['x',t('Xavfsizlik')+(d.blockedCount?` (${d.blockedCount})`:'')],['c','Kontent'],...(isSA?[['f','🧩 Funksiyalar']]:[]),['s','Sozlamalar'],['a','Audit']]
   const [tb,setT]=useState(tabs[0][0])
   const [navOpts,setNavOpts]=useState({})
   const navTo=(target,opts={})=>{setNavOpts(opts);setT(target);scrollTo({top:0})}
   return <><h1>{t("Boshqaruv")}</h1><div className="seg" style={{overflowX:'auto'}}>{tabs.map(([k,l])=><button key={k} className={tb===k?'on':''} onClick={()=>{setNavOpts({});setT(k)}}>{(k==='p'||k==='k'||k==='x')?l:t(l)}</button>)}</div>
-    {tb==='d'&&<Dash onNav={navTo}/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say} initFilter={navOpts.orderFilter}/>}{tb==='p'&&<Products d={d} act={act} say={say} onReload={onReload} initState={navOpts.prodState} initCat={navOpts.prodCat}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act} onReload={onReload}/>}{tb==='s'&&<Settings d={d} act={act} onReload={onReload} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
+    {tb==='d'&&<Dash onNav={navTo}/>}{tb==='o'&&<AdminOrders d={d} act={act} say={say} initFilter={navOpts.orderFilter}/>}{tb==='p'&&<Products d={d} act={act} say={say} onReload={onReload} initState={navOpts.prodState} initCat={navOpts.prodCat}/>}{tb==='k'&&<AdminCards act={act} say={say}/>}{tb==='b'&&canBc&&<AdminBroadcast act={act} say={say}/>}{tb==='m'&&<Customers act={act}/>}{tb==='x'&&<AdminSecurity act={act} say={say}/>}{tb==='c'&&<Content d={d} act={act} onReload={onReload}/>}{tb==='f'&&isSA&&<AdminFeatures d={d} act={act} say={say} onReload={onReload}/>}{tb==='s'&&<Settings d={d} act={act} onReload={onReload} onPreviewAnim={onPreviewAnim}/>}{tb==='a'&&<Audit/>}</>
 }
 
 function AiSheet({d,msgs,setMsgs,onReload,say,close}){
@@ -3060,14 +3128,14 @@ export default function App(){
   const n=entries.length
   const cartTotal=entries.reduce((s,v)=>s+lsum(v.p,v),0)
   const showBar=n>0&&(tab==='shop'||tab==='catalog'||tab==='promo')
-  const tabs=[['shop',"Do'kon"],['catalog','Katalog'],['promo','Aksiya'],['cart','Savat'],['orders','Buyurtma'],['profile','Profil']]
-  const activePreset=animOverride??(d.settings.animation?.preset||'none')
-  const showAiBtn=d.role==='superadmin'||(d.role==='admin'&&!!d.user?.canAi)
+  const tabs=[['shop',"Do'kon"],['catalog','Katalog'],...(F(d,'promoTab')?[['promo','Aksiya']]:[]),['cart','Savat'],['orders','Buyurtma'],['profile','Profil']]
+  const activePreset=F(d,'animation')?(animOverride??(d.settings.animation?.preset||'none')):'none'
+  const showAiBtn=F(d,'ai')&&(d.role==='superadmin'||(d.role==='admin'&&!!d.user?.canAi))
   const dl=d.settings?.delivery
   const minT=dl?.enabled?(Number(dl.minTotal)||0):0
   const freeT=Number(d.settings?.freeDeliveryThreshold)
   const useMin=minT>0
-  const barTarget=useMin?minT:(dl?.enabled&&Number.isFinite(freeT)&&freeT>0?freeT:0)
+  const barTarget=(F(d,'delivery')&&F(d,'deliveryMeter'))?(useMin?minT:(dl?.enabled&&Number.isFinite(freeT)&&freeT>0?freeT:0)):0
   const barRem=barTarget>0?Math.max(0,barTarget-cartTotal):0
   const barPct=barTarget>0?Math.min(100,Math.round((cartTotal/barTarget)*100)):0
 
@@ -3087,7 +3155,7 @@ export default function App(){
       {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}} onReload={load} say={say}/>}
       {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart} favs={favs} toggleFav={toggleFav} onReload={load} say={say}/>}
       {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')} onReload={load}/>}
-      {tab==='orders'&&<Orders d={d} act={act}/>}
+      {tab==='orders'&&<Orders d={d} act={act} onReorder={o=>{const next={...cart};let added=0;for(const i of (o.items||[])){if(!i.product_id||i.active===false)continue;const p={id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0};if(!p.price)continue;if(p.unit==='piece'){next[keyOf(p)]={p,qty:Math.max(1,Math.min(500,Math.round(Number(i.qty)||1)))};added++}else if(p.unit==='weight'&&!(p.min_grams>0)){const ms=Math.max(1000,Number(p.min_sum)||0);next[keyOf(p)]={p,sum:Math.max(ms,Math.round(Number(i.ordered_sum)||ms))};added++}}if(!added){say(t("Bu buyurtmada faol mahsulot topilmadi"));return}setCart(next);say(t("Savatga qo'shildi ✅"));setTab('cart')}}/>}
       {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act} onReload={load}/>}
       {tab==='admin'&&d.role!=='user'&&<Admin d={d} act={act} say={say} onReload={load} onPreviewAnim={p=>setAnimOverride(p)}/>}
 

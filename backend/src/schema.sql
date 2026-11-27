@@ -110,3 +110,5 @@ create index if not exists order_items_prod_idx on order_items(product_id);
 
 
 
+
+alter table orders add column if not exists comment text;
