@@ -1,5 +1,5 @@
 // JOYI: frontend/src/App.jsx  (GitHub'da shu yo'l bilan yarating)
-import {useState,useEffect,useCallback,useRef,createContext,useContext} from 'react'
+import {Fragment,useState,useEffect,useCallback,useRef,createContext,useContext} from 'react'
 import {parseParadoxDb} from './paradox'
 const API=import.meta.env.PROD?'':(import.meta.env.VITE_API_URL||'http://localhost:8080')
 const tg=window.Telegram?.WebApp
@@ -1152,14 +1152,12 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
         <BundleCarousel bundles={d.bundles} onOpen={setBdet} actionBtn={actionBtn}/>
       </>}
 
-      {F(d,'homeShelves')&&homeHits.length>0&&<>
+      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say} beforeLast={F(d,'homeShelves')&&homeHits.length>0?<>
         <div className="sec-head"><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
         <div className="hrow shelf-row">
           {homeHits.map(p=><ProductCard key={'hh:'+p.id} p={p} fav={favSet.has(p.id)} onFav={F(d,'favorites')?toggleFav:null} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
         </div>
-      </>}
-
-      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
+      </>:null}/>
     </>:<>
       <div className="cat-bar">
         <button className="back-btn" aria-label="Back" onClick={()=>{if(favView){setFavView(false)}else if(dq){setQ('')}else if(fam&&!cat){setFam('')}else if(parentObj){setCat(parentObj.name)}else{setCat('');setFam('')}}}>
@@ -1336,7 +1334,7 @@ function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx
   </div>
 }
 
-function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,filter=''}){
+function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,filter='',beforeLast=null}){
   const {t,cn}=useLang()
   const [addFor,setAddFor]=useState(null)
   const q=filter.trim().toLowerCase()
@@ -1350,14 +1348,18 @@ function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,filter=''}){
     }else if(isAdm&&match(r))emptyRoots.push({root:r,idx})
   })
   return <>
-    {sections.map(({root,kids,idx})=><div className="bento-sec kz-sec" key={root.name}>
-      <div className="bento-sec-head">
-        <h2 style={{cursor:'default'}}>{cn(root)}</h2>
-        {isAdm&&<button type="button" className="bento-sec-more" onClick={()=>setAddFor(addFor===root.name?null:root.name)}>{addFor===root.name?'✕':"+ Bo'lim"}</button>}
+    {sections.map(({root,kids,idx},sIdx)=><Fragment key={root.name}>
+      {beforeLast&&sections.length>=2&&sIdx===sections.length-1&&beforeLast}
+      <div className="bento-sec kz-sec">
+        <div className="bento-sec-head">
+          <h2 style={{cursor:'default'}}>{cn(root)}</h2>
+          {isAdm&&<button type="button" className="bento-sec-more" onClick={()=>setAddFor(addFor===root.name?null:root.name)}>{addFor===root.name?'✕':"+ Bo'lim"}</button>}
+        </div>
+        {isAdm&&addFor===root.name&&<QuickSubCatBox parent={root.name} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
+        <BentoTileGrid items={kids} parentName={root.name} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} colorIdx={idx}/>
       </div>
-      {isAdm&&addFor===root.name&&<QuickSubCatBox parent={root.name} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
-      <BentoTileGrid items={kids} parentName={root.name} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} colorIdx={idx}/>
-    </div>)}
+    </Fragment>)}
+    {beforeLast&&sections.length<2&&beforeLast}
     {isAdm&&emptyRoots.length>0&&<div className="card" style={{background:'#F8FAFC',borderStyle:'dashed'}}>
       <div className="m" style={{marginBottom:8}}>📁 Ichki katalogi hali qo'shilmagan asosiy kataloglar (faqat adminga ko'rinadi — <b>+ Bo'lim</b> bosib ichki katalog qo'shing):</div>
       <div className="chips" style={{paddingBottom:0}}>
