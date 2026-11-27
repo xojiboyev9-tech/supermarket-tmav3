@@ -95,29 +95,29 @@ const rankModel=n=>{
 async function discoverModels(key,tried){
  const out=[];
  try{
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,{signal:AbortSignal.timeout(8000)});
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,{signal:AbortSignal.timeout(6000)});
   if(r.ok){
    const d=await r.json().catch(()=>({}));
    const list=(d.models||[]).filter(m=>Array.isArray(m.supportedGenerationMethods)&&m.supportedGenerationMethods.includes('generateContent'))
     .map(m=>String(m.name||'').replace(/^models\//,''))
-    .filter(n=>n&&!tried.has(n)&&/^gemini-/i.test(n)&&!/embedding|tts|image|vision|aqa|robotics|computer/i.test(n))
+    .filter(n=>n&&!tried.has(n)&&/^gemini-/i.test(n)&&!/embedding|tts|image|vision|aqa|robotics|computer|thinking|deep|research|audio|live|pro\b/i.test(n))
     .sort((a,b)=>rankModel(b)-rankModel(a)||b.localeCompare(a));
    for(const n of list)if(!out.includes(n))out.push(n);
   }
  }catch{}
  for(const n of FALLBACK_MODELS)if(!tried.has(n)&&!out.includes(n))out.push(n);
- return out.slice(0,5);
+ return out.slice(0,4);
 }
-async function postGemini(key,model,body){
+async function postGemini(key,model,body,ms=18000){
  const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
  let res;
  try{
-  res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
+  res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(ms)});
  }catch(e){
-  throw O.bad(e?.name==='TimeoutError'?"AI javob berishi cho'zilib ketdi, qayta urinib ko'ring.":"AI serveriga ulanib bo'lmadi, qayta urinib ko'ring.");
+  return{res:null,data:{},timeout:e?.name==='TimeoutError',netErr:e};
  }
  const data=await res.json().catch(()=>({}));
- return{res,data};
+ return{res,data,timeout:false};
 }
 async function callGemini({system,contents,tools}){
  const key=apiKey();
@@ -129,23 +129,27 @@ async function callGemini({system,contents,tools}){
  };
  if(tools&&tools.length)body.tools=[{functionDeclarations:tools}];
  let model=modelName();
- let {res,data}=await postGemini(key,model,body);
- const canRetry=r=>r&&(r.status===429||r.status===404||(r.status===400&&/no longer available|not found|not supported|deprecated|unknown model/i.test(String(data?.error?.message||''))));
- if(!res.ok&&canRetry(res)&&!process.env.GEMINI_MODEL){
+ let attempt=await postGemini(key,model,body,18000);
+ const canRetry=a=>a.timeout||!a.res||(a.res.status===429||a.res.status===404||(a.res.status===400&&/no longer available|not found|not supported|deprecated|unknown model/i.test(String(a.data?.error?.message||''))));
+ if((!attempt.res||!attempt.res.ok)&&canRetry(attempt)&&!process.env.GEMINI_MODEL){
   const tried=new Set([model]);
-  const msg=String(data?.error?.message||'');
+  const msg=String(attempt.data?.error?.message||'');
   const hint=/use\s+(?:models\/)?([a-zA-Z0-9._-]+)/i.exec(msg)?.[1];
   const candidates=[];
   if(hint&&!tried.has(hint))candidates.push(hint);
   for(const c of await discoverModels(key,tried))if(!candidates.includes(c))candidates.push(c);
-  for(const next of candidates.slice(0,5)){
+  for(const next of candidates.slice(0,4)){
    tried.add(next);
-   const retry=await postGemini(key,next,body);
-   res=retry.res;data=retry.data;
-   if(res.ok){resolvedModel=next;model=next;break}
-   if(res.status===401||res.status===403)break;
+   const retry=await postGemini(key,next,body,12000);
+   attempt=retry;
+   if(retry.res&&retry.res.ok){resolvedModel=next;model=next;break}
+   if(retry.res&&(retry.res.status===401||retry.res.status===403))break;
   }
  }
+ if(!attempt.res){
+  throw O.bad(attempt.timeout?"AI javob berishi cho'zilib ketdi, qayta urinib ko'ring.":"AI serveriga ulanib bo'lmadi, qayta urinib ko'ring.");
+ }
+ const {res,data}=attempt;
  if(!res.ok){
   const msg=String(data?.error?.message||'');
   console.error('gemini',model,res.status,msg.slice(0,300));
