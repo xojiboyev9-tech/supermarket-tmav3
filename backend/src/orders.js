@@ -1,6 +1,7 @@
 // JOYI: backend/src/orders.js  (GitHub'da shu yo'l bilan yarating)
 const {pool,q,audit,getSetting,setSetting}=require('./db');
 const F=require('./features');
+const ORG=require('./organizer');
 let N={staff:async()=>{},user:async()=>{}};exports.setNotifier=n=>{N=n};
 const bad=m=>{const e=new Error(m);e.status=400;return e};
 const km=(a,b)=>{const r=x=>x*Math.PI/180,h=Math.sin(r(b.lat-a.lat)/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(r(b.lng-a.lng)/2)**2;return 12742*Math.asin(Math.sqrt(h))};
@@ -32,7 +33,7 @@ exports.createOrder=async(me,b)=>{
    const p=(await c.query('select * from products where id=$1 and active for update',[Number(it.productId??it.id)])).rows[0];
    if(!p)throw bad('Mahsulot topilmadi');age=Math.max(age,p.age_min||0);const up=effPrice(p);let qty,sum;
    if(p.unit==='weight'&&p.min_grams>0){const g=Math.round(Number(it.grams));if(!(g>=p.min_grams&&g<=20000&&g%50===0))throw bad(`${p.name}: og'irlik noto'g'ri`);qty=g/1000;sum=Math.round(up*g/1000);orderKg+=qty}
-   else if(p.unit==='weight'){const minS=Math.max(1000,Number(p.min_sum)||0);sum=Math.round(Number(it.sum));if(!(sum>=minS&&sum<=5000000))throw bad(`${p.name}: minimal summa ${minS.toLocaleString('ru-RU')} so'm`);qty=Math.round(sum/up*1000)/1000;orderKg+=qty}
+   else if(p.unit==='weight'){const minS=Math.max(1000,Number(p.min_sum)||30000);sum=Math.round(Number(it.sum));if(!(sum>=minS&&sum<=5000000))throw bad(`${p.name}: minimal summa ${minS.toLocaleString('ru-RU')} so'm`);qty=Math.round(sum/up*1000)/1000;orderKg+=qty}
    else{qty=Number(it.qty);if(!Number.isInteger(qty)||qty<1||qty>500)throw bad(`${p.name}: soni noto'g'ri`);sum=qty*up;if(p.weight_g>0)orderKg+=(p.weight_g*qty)/1000}
    if(wh&&p.stock!==null){if(Number(p.stock)<qty)throw bad(`${p.name}: omborda yetarli emas`);await c.query('update products set stock=stock-$1 where id=$2',[qty,p.id])}
    subtotal+=sum;lines.push([{...p,price:up},qty,sum]);
@@ -107,7 +108,7 @@ exports.saveProduct=async(me,body,id)=>{
   name_uz:String(body.name_uz||'').trim().slice(0,120)||null,
   description:String(body.description||'').slice(0,600)||null,
   min_grams:Math.max(0,Math.min(5000,Math.round(Number(body.min_grams))||0)),
-  min_sum:Math.max(0,Math.min(1000000,Math.round(Number(body.min_sum))||0)),
+  min_sum:Math.max(0,Math.min(1000000,Math.round(Number(body.min_sum))||(body.unit==='weight'&&!(Number(body.min_grams)>0)?30000:0))),
   weight_g:Math.max(0,Math.min(100000,Math.round(Number(body.weight_g))||0)),
   priority:clampPrio(body.priority),
   family:String(body.family||'').trim().slice(0,60)||null,
@@ -152,6 +153,7 @@ exports.syncProducts=async(actorId,rawItems,opts={})=>{
  if(!Array.isArray(rawItems)||!rawItems.length)throw bad("Mahsulotlar ro'yxati bo'sh");
  const items=rawItems.slice(0,50000);
  const existing=(await q('select id,barcode,name,price,stock,active,needs_setup from products')).rows;
+ const syncCats=(await q('select * from categories order by sort,id')).rows;
  const byBc=new Map(),byName=new Map();
  for(const r of existing){
   if(r.barcode)byBc.set(String(r.barcode).trim(),r);
@@ -198,12 +200,16 @@ exports.syncProducts=async(actorId,rawItems,opts={})=>{
    }else{
     if(!name){skipped++;continue}
     if(onlyInStockNew&&stock!==null&&stock<=0){skipped++;continue}
-    const isW=raw.unit==='weight'||/(^|[\s.,(\/])(вес|весов|весовой|кг|kg)\.?$/i.test(name);
+    const isW=raw.unit==='weight'||ORG.isWeightProduct({name});
     const unit=isW?'weight':'piece';
+    const minSum=isW?30000:0;
+    const matched=ORG.pickCategory(name,syncCats);
+    const autoCat=matched&&!matched.createRoot&&!matched.createSub?matched.category:'Boshqa';
+    const autoUz=ORG.toUzName(name);
     const newActive=Boolean(activateNew&&(stock===null||stock>0));
     const ins=(await c.query(
-     "insert into products(name,price,unit,category,barcode,stock,active,priority,needs_setup) values($1,$2,$3,'Boshqa',$4,$5,$6,3,true) returning id,barcode,name,price,stock,active,needs_setup",
-     [name,price,unit,barcode,stock,newActive]
+     "insert into products(name,name_uz,price,unit,min_sum,category,barcode,stock,active,priority,needs_setup) values($1,$2,$3,$4,$5,$6,$7,$8,$9,3,true) returning id,barcode,name,price,stock,active,needs_setup",
+     [name,autoUz,price,unit,minSum,autoCat,barcode,stock,newActive]
     )).rows[0];
     created++;
     if(newActive)activated++;
@@ -279,7 +285,7 @@ exports.editApply=async(userId,id,changes)=>{
      const g=Math.max(minG,Math.min(20000,Math.round(+ch.grams/50)*50));
      newQty=g/1000;newSum=Math.round(up*g/1000);
     }else{
-     const minS=Math.max(1000,Number(p?.min_sum)||0);
+     const minS=Math.max(1000,Number(p?.min_sum)||30000);
      const s=Math.round(+ch.sum||(+ch.qty*up)||0);
      if(s>0){newSum=Math.max(minS,Math.min(5000000,s));newQty=Math.round(newSum/up*1000)/1000}
     }
