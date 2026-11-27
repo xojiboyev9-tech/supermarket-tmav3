@@ -70,7 +70,7 @@ async function getPub(){
    q("select value from settings where key='animation'"),
    q("select value from settings where key='support'"),
    q('select id,image,title,subtitle,link from banners where active order by sort,id'),
-   q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`),
+   q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'description',p.description,'category',p.category,'price',p.price,'sale_price',p.sale_price,'sale_until',p.sale_until,'unit',p.unit,'min_grams',p.min_grams,'min_sum',p.min_sum,'weight_g',p.weight_g,'priority',p.priority,'family',p.family,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`),
    q('select id,title,yt_id from videos where active order by id desc'),
    q('select name,name_ru,image,section,sort,parent from categories order by case when coalesce(sort,0)>0 then sort else 999999 end asc,id asc'),
    q(`select count(*)::int c from products where active${whCond} and ${SALE_SQL}`),
@@ -405,7 +405,20 @@ app.get('/api/admin/products/:id/analytics',need(...ADM),wrap(async(req,res)=>{
 app.get('/api/recommend',wrap(async(req,res)=>{const cats=String(req.query.cats||'').split('|').filter(Boolean).slice(0,6),ex=String(req.query.ex||'').split(',').map(Number).filter(Boolean).slice(0,60);
  res.json((await q(`select ${PSEL} from products where active and unit='piece' and category=any($1::text[]) and id<>all($2::int[]) order by random() limit 12`,[cats,ex])).rows)}));
 app.put('/api/products/:id/active',need(...ADM),wrap(async(req,res)=>{await q('update products set active=$1 where id=$2',[!!req.body.active,+req.params.id]);bustPub();await audit(req.me.tg_id,'product.active','product:'+req.params.id,{active:!!req.body.active});res.json({success:true})}));
-app.get('/api/content',need(...ADM),wrap(async(req,res)=>res.json({banners:(await q('select * from banners order by sort,id')).rows,videos:(await q('select * from videos order by id desc')).rows,bundles:(await q('select * from bundles order by id desc')).rows})));
+app.put('/api/products/:id/image',need(...ADM),wrap(async(req,res)=>{const img=String(req.body?.image||'').trim()||null;await q('update products set image=$1 where id=$2',[img,+req.params.id]);bustPub();await audit(req.me.tg_id,'product.save','product:'+req.params.id,{image:!!img});res.json({success:true,image:img})}));
+app.get('/api/content',need(...ADM),wrap(async(req,res)=>res.json({
+ banners:(await q('select * from banners order by sort,id')).rows,
+ videos:(await q('select * from videos order by id desc')).rows,
+ bundles:(await q(`select b.*,coalesce((select json_agg(json_build_object('productId',p.id,'name',p.name,'price',p.price,'image',p.image,'category',p.category,'qty',bi.qty) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b order by b.id desc`)).rows
+})));
+app.put('/api/content/bundles/:id',need(...ADM),wrap(async(req,res)=>{
+ const id=+req.params.id,b=req.body||{};
+ if(!b.title||!(+b.price>0)||!Array.isArray(b.items)||!b.items.length)return res.status(400).json({error:"Nabor ma'lumoti to'liq emas"});
+ await q("update bundles set title=$1,title_ru=$2,description=$3,description_ru=$4,price=$5,image=coalesce(nullif($6,''),image) where id=$7",[b.title,b.title_ru||null,b.description||null,b.description_ru||null,+b.price,b.image||'',id]);
+ await q('delete from bundle_items where bundle_id=$1',[id]);
+ for(const it of b.items.slice(0,30))await q('insert into bundle_items values($1,$2,$3)',[id,+it.productId,Math.max(1,+it.qty||1)]);
+ bustPub();await audit(req.me.tg_id,'content.bundles.edit','bundles:'+id,{title:b.title});res.json({success:true});
+}));
 app.post('/api/content/:kind',need(...ADM),wrap(async(req,res)=>{const k=req.params.kind,b={...req.body};if(!KIND[k])return res.sendStatus(404);
  if(k==='videos'){const m=YT.exec(String(b.url||''));if(!m)return res.status(400).json({error:"YouTube havolasi noto'g'ri"});b.yt_id=m[1]}
  if(k==='bundles'&&(!b.title||!(+b.price>0)||!Array.isArray(b.items)||!b.items.length))return res.status(400).json({error:"Nabor ma'lumoti to'liq emas"});
