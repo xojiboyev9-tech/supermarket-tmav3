@@ -1274,7 +1274,37 @@ function QuickSubCatBox({parent,onReload,say,close}){
   </div>
 }
 
+function CatPosSheet({c,cur,sibs,close,onReload,say}){
+  const [val,setVal]=useState(String(cur)),[busy,setBusy]=useState(false)
+  const n=Math.max(1,Math.min(sibs.length,Number(String(val||'').replace(/\D/g,''))||cur))
+  const move=async pos=>{
+    if(busy)return;setBusy(true)
+    try{
+      const names=sibs.map(x=>x.name).filter(x=>x!==c.name)
+      names.splice(Math.max(0,Math.min(names.length,pos-1)),0,c.name)
+      await api('/api/cats/reorder','PUT',{names})
+      if(onReload)await onReload()
+      say&&say(`✅ "${c.name}" #${pos}-o'ringa qo'yildi`)
+      close()
+    }catch(e){say&&say(e.message)}
+    setBusy(false)
+  }
+  return <div className="sheet" onClick={close}><div className="wsh" onClick={e=>e.stopPropagation()}>
+    <div className="sheet-handle"/>
+    <h3 style={{margin:'4px 0'}}>🔢 Bo'lim tartib raqami</h3>
+    <div className="m" style={{marginBottom:10}}><b>{c.name}</b> · hozirgi o'rni: <b>#{cur}</b> / {sibs.length}</div>
+    <input className="in" autoFocus type="text" inputMode="numeric" value={val} onChange={e=>setVal(digits(e.target.value))}/>
+    <div className="pos-quick">
+      <button type="button" className="btn s g" onClick={()=>move(1)} disabled={busy||cur===1}>⬆ 1-o'ringa</button>
+      {cur>1&&<button type="button" className="btn s g" onClick={()=>move(cur-1)} disabled={busy}>↑ Oldinga</button>}
+      {cur<sibs.length&&<button type="button" className="btn s g" onClick={()=>move(cur+1)} disabled={busy}>↓ Orqaga</button>}
+    </div>
+    <button type="button" className="btn" style={{marginTop:12}} disabled={busy||n===cur} onClick={()=>move(n)}>{busy?'…':`#${n}-o'ringa qo'yish`}</button>
+  </div></div>
+}
+
 function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx=0,onAddSub}){
+  const [posC,setPosC]=useState(null)
   const {t,cn}=useLang()
   const autoSpans=bentoSpans(items.length)
   return <div className="bento-grid">
@@ -1295,54 +1325,47 @@ function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx
           :<span className="bento-emo">{EMO[c.name]||(parentName&&EMO[parentName])||'🛒'}</span>}
         {subCount>0&&<span className="bento-sub-pill">{subCount} {t("bo'lim")}</span>}
         {isAdm&&<div className="bento-adm-acts">
+          <button type="button" className={'cat-sz'+(c.sort>0?' custom':'')} title="Tartib raqami" onClick={e=>{e.stopPropagation();setPosC({c,n:i+1})}}>#{i+1}</button>
           {onAddSub&&!c.parent&&<button type="button" className="cat-sz" title="Ichki bo'lim qo'shish" onClick={e=>{e.stopPropagation();onAddSub(c.name)}}>＋</button>}
           <CatSizeBtn c={c} onReload={onReload} say={say}/>
           <CatCamBtn c={c} onReload={onReload} say={say}/>
         </div>}
       </div>
     })}
+    {posC&&<CatPosSheet c={posC.c} cur={posC.n} sibs={items} close={()=>setPosC(null)} onReload={onReload} say={say}/>}
   </div>
 }
 
-function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,hideTitle,filter=''}){
+function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,filter=''}){
   const {t,cn}=useLang()
   const [addFor,setAddFor]=useState(null)
   const q=filter.trim().toLowerCase()
   const match=c=>!q||c.name.toLowerCase().includes(q)||(c.name_ru||'').toLowerCase().includes(q)||cn(c).toLowerCase().includes(q)
-  const sections=[],standalones=[]
+  const sections=[],emptyRoots=[]
   tree.roots.forEach((r,idx)=>{
     const kids=tree.childrenOf(r.name)
     if(kids.length>0){
       const vis=q?(match(r)?kids:kids.filter(match)):kids
       if(vis.length>0)sections.push({root:r,kids:vis,idx})
-    }else if(match(r))standalones.push({root:r,idx})
+    }else if(isAdm&&match(r))emptyRoots.push({root:r,idx})
   })
-  // If no root has subcategories yet, render all roots as one Bento grid (with per-section "+ Bo'lim" helper for admins)
-  if(!sections.length&&!q){
-    return <div className="bento-sec">
-      {!hideTitle&&<div className="bento-sec-head"><h2>{t("Katalog")}</h2></div>}
-      <BentoTileGrid items={tree.roots} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} onAddSub={isAdm?n=>setAddFor(addFor===n?null:n):null}/>
-      {isAdm&&addFor&&<QuickSubCatBox parent={addFor} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
-    </div>
-  }
   return <>
     {sections.map(({root,kids,idx})=><div className="bento-sec kz-sec" key={root.name}>
       <div className="bento-sec-head">
-        <h2 onClick={()=>onPick(root.name)}>{cn(root)}</h2>
-        <div className="gap" style={{gap:6}}>
-          {isAdm&&<button type="button" className="bento-sec-more" onClick={()=>setAddFor(addFor===root.name?null:root.name)}>{addFor===root.name?'✕':"+ Bo'lim"}</button>}
-          <button type="button" className="bento-sec-more" onClick={()=>onPick(root.name)}>{t("Hammasi")} ›</button>
-        </div>
+        <h2 style={{cursor:'default'}}>{cn(root)}</h2>
+        {isAdm&&<button type="button" className="bento-sec-more" onClick={()=>setAddFor(addFor===root.name?null:root.name)}>{addFor===root.name?'✕':"+ Bo'lim"}</button>}
       </div>
       {isAdm&&addFor===root.name&&<QuickSubCatBox parent={root.name} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
       <BentoTileGrid items={kids} parentName={root.name} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} colorIdx={idx}/>
     </div>)}
-    {standalones.length>0&&<div className="bento-sec kz-sec">
-      {sections.length>0&&<div className="bento-sec-head"><h2>{t("Boshqa bo'limlar")}</h2></div>}
-      {isAdm&&addFor&&standalones.some(x=>x.root.name===addFor)&&<QuickSubCatBox parent={addFor} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
-      <BentoTileGrid items={standalones.map(x=>x.root)} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} colorIdx={sections.length} onAddSub={isAdm?n=>setAddFor(addFor===n?null:n):null}/>
+    {isAdm&&emptyRoots.length>0&&<div className="card" style={{background:'#F8FAFC',borderStyle:'dashed'}}>
+      <div className="m" style={{marginBottom:8}}>📁 Ichki katalogi hali qo'shilmagan asosiy kataloglar (faqat adminga ko'rinadi — <b>+ Bo'lim</b> bosib ichki katalog qo'shing):</div>
+      <div className="chips" style={{paddingBottom:0}}>
+        {emptyRoots.map(({root})=><button key={root.name} type="button" className={'chip'+(addFor===root.name?' on':'')} onClick={()=>setAddFor(addFor===root.name?null:root.name)}>＋ {cn(root)}</button>)}
+      </div>
+      {addFor&&emptyRoots.some(x=>x.root.name===addFor)&&<div style={{marginTop:10}}><QuickSubCatBox parent={addFor} onReload={onReload} say={say} close={()=>setAddFor(null)}/></div>}
     </div>}
-    {!sections.length&&!standalones.length&&<div className="empty-box"><span>🔍</span><b>{t("Hech narsa topilmadi")}</b></div>}
+    {!sections.length&&!emptyRoots.length&&<div className="empty-box"><span>🗂</span><b>{t("Hech narsa topilmadi")}</b></div>}
   </>
 }
 
@@ -2540,7 +2563,7 @@ function Cats({d,act,onReload}){
         <div className="row" style={{paddingLeft:c.depth*16}}>
           <span className="row-txt">
             {c.depth>0&&<span className="m" style={{marginRight:4}}>↳</span>}
-            {c.sort>0&&<span className="badge red" style={{marginRight:5}}>#{c.sort}</span>}
+            <span className={'badge '+(c.depth?'amber':'red')} style={{marginRight:5}}>#{c.sort>0?c.sort:(idx+1)}</span>
             {EMO[c.name]||(c.depth?'📁':'🛒')} {c.name}{c.name_ru&&<span className="m"> · {c.name_ru}</span>}
             {sz&&sz.value&&<span className="badge gray" style={{marginLeft:6}}>{sz.icon} {sz.label}</span>}
           </span>

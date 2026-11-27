@@ -422,7 +422,9 @@ app.put('/api/content/banners/:id',need(...ADM),wrap(async(req,res)=>{const b=re
 app.post('/api/cats',need(...ADM),wrap(async(req,res)=>{const b=req.body,n=String(b.name||'').trim().slice(0,60);if(!n)return res.status(400).json({error:'Nom kerak'});
  const par=String(b.parent||'').trim().slice(0,60)||null;const cleanPar=par===n||par===b.old?null:par;
  if(b.old&&b.old!==n){await q('update categories set name=$1 where name=$2',[n,b.old]);await q('update categories set parent=$1 where parent=$2',[n,b.old]);await q('update products set category=$1 where category=$2',[n,b.old])}
- await q('insert into categories(name,name_ru,image,section,sort,parent) values($1,$2,$3,$4,$5,$6) on conflict(name) do update set name_ru=$2,image=coalesce($3,categories.image),section=$4,sort=$5,parent=$6',[n,b.name_ru||null,b.image||null,b.section||null,Math.max(0,Math.round(+b.sort)||0),cleanPar]);
+ let srt=Math.max(0,Math.round(+b.sort)||0);
+ if(!srt){const ex=(await q('select sort,parent from categories where name=$1',[n])).rows[0];if(ex&&ex.sort>0&&ex.parent===cleanPar)srt=ex.sort;else{const mx=(await q("select coalesce(max(sort),0)::int m from categories where coalesce(parent,'')=coalesce($1,'')",[cleanPar])).rows[0].m;srt=mx+1}}
+ await q('insert into categories(name,name_ru,image,section,sort,parent) values($1,$2,$3,$4,$5,$6) on conflict(name) do update set name_ru=$2,image=coalesce($3,categories.image),section=$4,sort=$5,parent=$6',[n,b.name_ru||null,b.image||null,b.section||null,srt,cleanPar]);
  bustPub();await audit(req.me.tg_id,'category.save','category',{n,parent:cleanPar});res.json({success:true})}));
 app.put('/api/cats/reorder',need(...ADM),wrap(async(req,res)=>{
  const names=Array.isArray(req.body.names)?req.body.names.map(x=>String(x||'').trim()).filter(Boolean).slice(0,200):[];
