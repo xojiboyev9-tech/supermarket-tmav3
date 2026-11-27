@@ -105,7 +105,8 @@ const RU={
   "Buyurtmaga izoh (ixtiyoriy)":"Комментарий к заказу (необязательно)",
   "Do'kon hozir yopiq":"Магазин сейчас закрыт","Ish vaqti":"Часы работы",
   "Ulashish":"Поделиться","Buyurtmani bekor qilish":"Отменить заказ",
-  "Buyurtmani bekor qilasizmi?":"Отменить заказ?","Barchasini yoqish":"Включить все"
+  "Buyurtmani bekor qilasizmi?":"Отменить заказ?","Barchasini yoqish":"Включить все",
+  "Do'kondan topish":"Найти в магазине"
 }
 const F=(d,k)=>d?.features?.[k]!==false
 
@@ -1273,7 +1274,7 @@ function QuickSubCatBox({parent,onReload,say,close}){
   </div>
 }
 
-function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx=0}){
+function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx=0,onAddSub}){
   const {t,cn}=useLang()
   const autoSpans=bentoSpans(items.length)
   return <div className="bento-grid">
@@ -1294,6 +1295,7 @@ function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx
           :<span className="bento-emo">{EMO[c.name]||(parentName&&EMO[parentName])||'🛒'}</span>}
         {subCount>0&&<span className="bento-sub-pill">{subCount} {t("bo'lim")}</span>}
         {isAdm&&<div className="bento-adm-acts">
+          {onAddSub&&!c.parent&&<button type="button" className="cat-sz" title="Ichki bo'lim qo'shish" onClick={e=>{e.stopPropagation();onAddSub(c.name)}}>＋</button>}
           <CatSizeBtn c={c} onReload={onReload} say={say}/>
           <CatCamBtn c={c} onReload={onReload} say={say}/>
         </div>}
@@ -1302,12 +1304,46 @@ function BentoTileGrid({items,parentName,tree,isAdm,onPick,onReload,say,colorIdx
   </div>
 }
 
-function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,hideTitle}){
-  const {t}=useLang()
-  return <div className="bento-sec">
-    {!hideTitle&&<div className="bento-sec-head"><h2>{t("Katalog")}</h2></div>}
-    <BentoTileGrid items={tree.roots} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say}/>
-  </div>
+function CategoryBentoCatalog({tree,isAdm,onPick,onReload,say,hideTitle,filter=''}){
+  const {t,cn}=useLang()
+  const [addFor,setAddFor]=useState(null)
+  const q=filter.trim().toLowerCase()
+  const match=c=>!q||c.name.toLowerCase().includes(q)||(c.name_ru||'').toLowerCase().includes(q)||cn(c).toLowerCase().includes(q)
+  const sections=[],standalones=[]
+  tree.roots.forEach((r,idx)=>{
+    const kids=tree.childrenOf(r.name)
+    if(kids.length>0){
+      const vis=q?(match(r)?kids:kids.filter(match)):kids
+      if(vis.length>0)sections.push({root:r,kids:vis,idx})
+    }else if(match(r))standalones.push({root:r,idx})
+  })
+  // If no root has subcategories yet, render all roots as one Bento grid (with per-section "+ Bo'lim" helper for admins)
+  if(!sections.length&&!q){
+    return <div className="bento-sec">
+      {!hideTitle&&<div className="bento-sec-head"><h2>{t("Katalog")}</h2></div>}
+      <BentoTileGrid items={tree.roots} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} onAddSub={isAdm?n=>setAddFor(addFor===n?null:n):null}/>
+      {isAdm&&addFor&&<QuickSubCatBox parent={addFor} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
+    </div>
+  }
+  return <>
+    {sections.map(({root,kids,idx})=><div className="bento-sec kz-sec" key={root.name}>
+      <div className="bento-sec-head">
+        <h2 onClick={()=>onPick(root.name)}>{cn(root)}</h2>
+        <div className="gap" style={{gap:6}}>
+          {isAdm&&<button type="button" className="bento-sec-more" onClick={()=>setAddFor(addFor===root.name?null:root.name)}>{addFor===root.name?'✕':"+ Bo'lim"}</button>}
+          <button type="button" className="bento-sec-more" onClick={()=>onPick(root.name)}>{t("Hammasi")} ›</button>
+        </div>
+      </div>
+      {isAdm&&addFor===root.name&&<QuickSubCatBox parent={root.name} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
+      <BentoTileGrid items={kids} parentName={root.name} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} colorIdx={idx}/>
+    </div>)}
+    {standalones.length>0&&<div className="bento-sec kz-sec">
+      {sections.length>0&&<div className="bento-sec-head"><h2>{t("Boshqa bo'limlar")}</h2></div>}
+      {isAdm&&addFor&&standalones.some(x=>x.root.name===addFor)&&<QuickSubCatBox parent={addFor} onReload={onReload} say={say} close={()=>setAddFor(null)}/>}
+      <BentoTileGrid items={standalones.map(x=>x.root)} tree={tree} isAdm={isAdm} onPick={onPick} onReload={onReload} say={say} colorIdx={sections.length} onAddSub={isAdm?n=>setAddFor(addFor===n?null:n):null}/>
+    </div>}
+    {!sections.length&&!standalones.length&&<div className="empty-box"><span>🔍</span><b>{t("Hech narsa topilmadi")}</b></div>}
+  </>
 }
 
 function ScrollTopBtn(){
@@ -1375,11 +1411,18 @@ function Promo({d,cart,setCart,favs,toggleFav,onReload,say}){
 
 function Catalog({d,go,onReload,say}){
   const {t}=useLang()
+  const [q,setQ]=useState('')
   const tree=buildCatTree(d.cats)
   const isAdm=d.role==='admin'||d.role==='superadmin'
   return <>
-    <h1>{t("Katalog")}</h1>
-    <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={go} onReload={onReload} say={say} hideTitle/>
+    <div className="search-row" style={{marginBottom:10}}>
+      <div className="search-box" style={{flex:1,marginTop:0}}>
+        <span className="search-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+        <input className="search" placeholder={t("Do'kondan topish")} value={q} onChange={e=>setQ(e.target.value)}/>
+        {q&&<button className="search-clr" onClick={()=>setQ('')}>✕</button>}
+      </div>
+    </div>
+    <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={go} onReload={onReload} say={say} hideTitle filter={q}/>
   </>
 }
 
