@@ -1152,7 +1152,7 @@ function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
         <BundleCarousel bundles={d.bundles} onOpen={setBdet} actionBtn={actionBtn}/>
       </>}
 
-      <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
+      <div className="bento-sec"><div className="bento-sec-head"><h2 onClick={()=>{goTab&&goTab('catalog');scrollTo({top:0})}}>{t("Katalog")}</h2>{goTab&&<button type="button" className="sec-link" onClick={()=>{goTab('catalog');scrollTo({top:0})}}>{t("Hammasi")} →</button>}</div><BentoTileGrid items={tree.roots} tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/></div>
 
       {F(d,'homeShelves')&&homeHits.length>0&&<>
         <div className="sec-head"><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
