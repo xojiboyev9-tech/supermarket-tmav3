@@ -685,15 +685,14 @@ function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel
   const [open,setOpen]=useState(false),[sq,setSq]=useState(''),[adding,setAdding]=useState(false)
   const [nUz,setNUz]=useState(''),[nRu,setNRu]=useState(''),[nPar,setNPar]=useState(''),[nImg,setNImg]=useState(''),[busy,setBusy]=useState(false),[err,setErr]=useState('')
   const curObj=value?tree.byName.get(value):null
-  const curParent=curObj?.parent||((curObj&&!curObj.parent)?curObj.name:'')
-  const [exp,setExp]=useState('')
-  useEffect(()=>{if(open)setExp(curParent||'')},[open,curParent])
+  // Active root inside modal: when null -> show root categories list; when set -> show ONLY that root's inner subcategories!
+  const [viewRoot,setViewRoot]=useState(null)
 
   const roots=tree.roots.filter(c=>!exclude||!exclude(c))
   const q=sq.trim().toLowerCase()
   const match=c=>!q||c.name.toLowerCase().includes(q)||(c.name_ru||'').toLowerCase().includes(q)||cn(c).toLowerCase().includes(q)
 
-  const close=()=>{setOpen(false);setSq('');setAdding(false)}
+  const close=()=>{setOpen(false);setSq('');setAdding(false);setViewRoot(null)}
   const pick=val=>{haptic('sel');onChange(val);close()}
 
   const pickImg=async e=>{
@@ -716,9 +715,11 @@ function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel
   }
   const curLabel=value?(curObj?(curObj.parent?`${curObj.parent} › ${cn(curObj)}`:cn(curObj)):value):(includeNone?(noneLabel||t("Asosiy kategoriya (yo'q)")):t("Katalogni tanlang"))
   const curIcon=value?(EMO[value]||(curObj?.parent?'📁':'🛒')):(includeNone?'🗂':'📁')
+  const viewRootObj=viewRoot?tree.byName.get(viewRoot):null
+  const viewKids=viewRoot?tree.childrenOf(viewRoot).filter(k=>(!exclude||!exclude(k))&&match(k)):[]
 
   return <>
-    <button type="button" className={'msel'+(compact?' compact':'')} style={style} onClick={()=>setOpen(true)}>
+    <button type="button" className={'msel'+(compact?' compact':'')} style={style} onClick={()=>{setViewRoot(null);setOpen(true)}}>
       <span className="msel-l">
         <span className="msel-ico">{curIcon}</span>
         <span className={'msel-txt'+(!value&&!includeNone?' msel-ph':'')}>{curLabel}</span>
@@ -729,28 +730,55 @@ function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel
       <div className="picker-box" onClick={e=>e.stopPropagation()}>
         <div className="sheet-handle"/>
         <div className="pick-head">
-          <h2>{title||t("Katalogni tanlang")}</h2>
+          {viewRoot?<button type="button" className="btn s g" style={{padding:'6px 11px'}} onClick={()=>{haptic('sel');setViewRoot(null);setSq('')}}>← {t("Orqaga")}</button>:null}
+          <h2 style={{flex:1}}>{viewRoot?(viewRootObj?cn(viewRootObj):viewRoot):(title||t("Katalogni tanlang"))}</h2>
           <button type="button" className="pick-close" onClick={close}>✕</button>
         </div>
         <input className="in" style={{marginBottom:8}} placeholder="🔍 Qidirish..." value={sq} onChange={e=>setSq(e.target.value)}/>
-        <div className="pick-list ios-cat-list">
-          {includeNone&&(!q||String(noneLabel||'').toLowerCase().includes(q))&&<div className={'pick-row compact'+(value===''?' on':'')} onClick={()=>pick('')}>
-            <div className="pick-row-l">
-              <span className="pick-ico">🗂</span>
-              <div className="pick-lbl"><b>{noneLabel||t("Asosiy kategoriya (yo'q)")}</b></div>
-            </div>
-            <span className="pick-chk">{value===''?'✓':''}</span>
-          </div>}
-          {roots.map(r=>{
-            const kids=(maxDepth===1?[]:tree.childrenOf(r.name)).filter(k=>!exclude||!exclude(k))
-            const visKids=q?(match(r)?kids:kids.filter(match)):kids
-            if(q&&!match(r)&&!visKids.length)return null
-            const isOpen=q?visKids.length>0:(exp===r.name)
-            const rootSel=value===r.name
-            const hasSelKid=kids.some(k=>k.name===value)
-            return <div key={r.name} className={'ios-cat-group'+(isOpen?' open':'')}>
-              <div className={'pick-row compact root'+(rootSel?' on':(hasSelKid?' has-sel':''))} onClick={()=>{
-                if(kids.length>0){haptic('sel');setExp(isOpen?'':r.name)}
+        <div className="pick-list">
+          {viewRoot?<>
+            {viewKids.map(k=>{
+              const sel=value===k.name
+              return <div key={k.name} className={'pick-row'+(sel?' on':'')} onClick={()=>pick(k.name)}>
+                <div className="pick-row-l">
+                  <span className="pick-ico">{k.image?<img src={k.image} alt="" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:10}}/>:'📁'}</span>
+                  <div className="pick-lbl">
+                    <b>{cn(k)}</b>
+                    {k.name_ru&&cn(k)!==k.name_ru&&<small>{k.name_ru}</small>}
+                  </div>
+                </div>
+                <span className="pick-chk">{sel?'✓':''}</span>
+              </div>
+            })}
+            {!viewKids.length&&<div className="m" style={{textAlign:'center',padding:'16px 0'}}>{t("Hech narsa topilmadi")}</div>}
+          </>:q?<>
+            {tree.flat.filter(c=>(!exclude||!exclude(c))&&(maxDepth===undefined||c.depth<maxDepth)&&match(c)).map(c=>{
+              const sel=value===c.name
+              return <div key={c.name} className={'pick-row'+(sel?' on':'')} onClick={()=>pick(c.name)}>
+                <div className="pick-row-l">
+                  <span className="pick-ico">{EMO[c.name]||(c.depth?'📁':'🛒')}</span>
+                  <div className="pick-lbl">
+                    <b>{cn(c)}</b>
+                    <small>{c.parent?`↳ ${c.parent}`:(c.name_ru||'')}</small>
+                  </div>
+                </div>
+                <span className="pick-chk">{sel?'✓':''}</span>
+              </div>
+            })}
+          </>:<>
+            {includeNone&&<div className={'pick-row'+(value===''?' on':'')} onClick={()=>pick('')}>
+              <div className="pick-row-l">
+                <span className="pick-ico">🗂</span>
+                <div className="pick-lbl"><b>{noneLabel||t("Asosiy kategoriya (yo'q)")}</b></div>
+              </div>
+              <span className="pick-chk">{value===''?'✓':''}</span>
+            </div>}
+            {roots.map(r=>{
+              const kids=(maxDepth===1?[]:tree.childrenOf(r.name)).filter(k=>!exclude||!exclude(k))
+              const rootSel=value===r.name
+              const hasSelKid=kids.some(k=>k.name===value)
+              return <div key={r.name} className={'pick-row'+((rootSel||hasSelKid)?' on':'')} onClick={()=>{
+                if(kids.length>0){haptic('sel');setViewRoot(r.name)}
                 else pick(r.name)
               }}>
                 <div className="pick-row-l">
@@ -761,39 +789,15 @@ function CatPicker({value,cats,onChange,onReload,canCreate,includeNone,noneLabel
                   </div>
                 </div>
                 <div className="pick-r">
-                  {kids.length>0&&<span className="ios-cat-cnt">{kids.length}</span>}
-                  {kids.length>0
-                    ?<span className={'ios-chev'+(isOpen?' open':'')}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>
+                  {kids.length>0?<><span className="badge red">{kids.length} {t("bo'lim")}</span><span style={{fontSize:18,fontWeight:800,color:'#9CA3AF'}}>›</span></>
                     :<span className="pick-chk">{rootSel?'✓':''}</span>}
                 </div>
               </div>
-              {isOpen&&visKids.length>0&&<div className="ios-sub-wrap">
-                {visKids.map(k=>{
-                  const sel=value===k.name
-                  return <div key={k.name} className={'pick-row compact sub'+(sel?' on':'')} onClick={()=>pick(k.name)}>
-                    <div className="pick-row-l">
-                      <span className="pick-ico">{k.image?<img src={k.image} alt="" style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:8}}/>:'📁'}</span>
-                      <div className="pick-lbl">
-                        <b>{cn(k)}</b>
-                        {k.name_ru&&cn(k)!==k.name_ru&&<small>{k.name_ru}</small>}
-                      </div>
-                    </div>
-                    <span className="pick-chk">{sel?'✓':''}</span>
-                  </div>
-                })}
-                {maxDepth!==1&&<div className={'pick-row compact sub'+(rootSel?' on':'')} onClick={()=>pick(r.name)}>
-                  <div className="pick-row-l">
-                    <span className="pick-ico">{EMO[r.name]||'🗂'}</span>
-                    <div className="pick-lbl"><b>{cn(r)} (asosiy bo'lim)</b></div>
-                  </div>
-                  <span className="pick-chk">{rootSel?'✓':''}</span>
-                </div>}
-              </div>}
-            </div>
-          })}
+            })}
+          </>}
         </div>
         {canCreate&&(!adding
-          ?<button type="button" className="pick-add-btn" onClick={()=>{setNPar(exp||'');setAdding(true)}}>➕ {t("Yangi katalog qo'shish")}</button>
+          ?<button type="button" className="pick-add-btn" onClick={()=>{setNPar(viewRoot||'');setAdding(true)}}>➕ {viewRoot?`«${viewRoot}» ichiga bo'lim qo'shish`:t("Yangi katalog qo'shish")}</button>
           :<div className="pick-create">
             <div className="pick-create-h"><span>➕ {t("Yangi katalog qo'shish")}</span><button type="button" className="sec-link" style={{fontSize:12}} onClick={()=>setAdding(false)}>✕</button></div>
             <input className="in" placeholder="Nomi (o'zbekcha)" value={nUz} onChange={e=>setNUz(e.target.value)}/>
@@ -2284,10 +2288,20 @@ function ProductFields({f,setF,dept,tree,cats,families,onReload,onPick,onSave,on
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. summa (so'm, standart 30000)" value={f.min_sum||''} onChange={e=>setF({...f,min_sum:digits(e.target.value)})}/>
       <input className="in" style={{flex:1}} type="text" inputMode="numeric" placeholder="Min. gramm (ixtiyoriy)" value={f.min_grams||''} onChange={e=>setF({...f,min_grams:digits(e.target.value)})}/>
     </div>:<input className="in" type="text" inputMode="numeric" placeholder="Og'irligi (gramm, yetkazish limiti uchun — ixtiyoriy)" value={f.weight_g||''} onChange={e=>setF({...f,weight_g:digits(e.target.value)})}/>}
-    <div className="gap" style={{marginBottom:8}}>
+    <div className="gap" style={{marginBottom:6}}>
       {!dept&&<CatPicker style={{flex:1.7}} value={f.category} cats={catList} canCreate onReload={onReload} onChange={v=>setF({...f,category:v})}/>}
       <ModernSelect style={{flex:1}} value={String(f.age_min||0)} options={ageOpts} onChange={v=>setF({...f,age_min:Number(v)||0})} title="Yosh cheklovi"/>
     </div>
+    {!dept&&(()=>{
+      const t2=tree||buildCatTree(catList)
+      const curC=f.category?t2.byName.get(f.category):null
+      const rootName=curC?(curC.parent||curC.name):''
+      const subs=rootName?t2.childrenOf(rootName):[]
+      if(!subs.length)return null
+      return <div className="chips" style={{marginBottom:8,paddingTop:0}}>
+        {subs.map(sc=><button key={sc.name} type="button" className={'chip'+(f.category===sc.name?' on':'')} onClick={()=>{haptic('sel');setF({...f,category:sc.name})}}>📁 {sc.name}</button>)}
+      </div>
+    })()}
     <div className="row" style={{margin:'2px 0 8px'}}>
       <span className="m" style={{fontWeight:700}}>🏆 O'rin:</span>
       <div className="prio-bar compact" style={{flex:1}}>
