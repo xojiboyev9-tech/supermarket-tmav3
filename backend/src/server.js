@@ -53,15 +53,17 @@ setInterval(()=>{const now=Date.now();for(const [k,v] of userCache)if(v.exp<=now
 
 /* Shared public catalog/content/settings cache (30s TTL + instant bust on admin writes) */
 const SALE_SQL='sale_price is not null and sale_price>0 and sale_price<price and (sale_until is null or sale_until>now())';
+const PSEL='id,pos,category,name,name_uz,description,min_grams,min_sum,weight_g,priority,family,sales_count,unit,price,sale_price,sale_until,image,age_min';
 let pubCache=null,pubExp=0,pubPromise=null;
 const bustPub=()=>{pubCache=null;pubExp=0};
 AI.init({runBroadcast,bustPub});
- async function getPub(){
+async function getPub(){
  if(pubCache&&pubExp>Date.now())return pubCache;
  if(pubPromise)return pubPromise;
  pubPromise=(async()=>{
-  const [whR,dlR,anR,suR,bnR,bdR,vdR,ctR,scR,fmR]=await Promise.all([
-   getSetting('warehouse'),
+  const whR=await getSetting('warehouse');
+  const whCond=whR.enabled?' and (stock is null or stock>0)':'';
+  const [dlR,anR,suR,bnR,bdR,vdR,ctR,scR,fmR,hsR,hhR]=await Promise.all([
    getSetting('delivery'),
    q("select value from settings where key='animation'"),
    q("select value from settings where key='support'"),
@@ -69,8 +71,10 @@ AI.init({runBroadcast,bustPub});
    q(`select b.id,b.title,b.title_ru,b.description,b.description_ru,b.image,b.price,coalesce((select sum(p.price*bi.qty)::int from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),0) old_price,coalesce((select json_agg(p.name||' ×'||bi.qty::text) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') parts,coalesce((select json_agg(json_build_object('id',p.id,'name',p.name,'name_uz',p.name_uz,'price',p.price,'unit',p.unit,'image',p.image,'qty',bi.qty,'age_min',p.age_min) order by bi.product_id) from bundle_items bi join products p on p.id=bi.product_id where bi.bundle_id=b.id),'[]') items from bundles b where b.active order by b.id desc`),
    q('select id,title,yt_id from videos where active order by id desc'),
    q('select name,name_ru,image,section,sort,parent from categories order by case when coalesce(sort,0)>0 then sort else 999999 end asc,id asc'),
-   q(`select count(*)::int c from products where active and ${SALE_SQL}`),
-   q("select distinct family from products where active and family is not null and family<>'' order by family limit 40")
+   q(`select count(*)::int c from products where active${whCond} and ${SALE_SQL}`),
+   q("select distinct family from products where active and family is not null and family<>'' order by family limit 40"),
+   q(`select ${PSEL} from products where active${whCond} and ${SALE_SQL} order by coalesce(priority,3) asc,sale_until nulls last,coalesce(sales_count,0) desc,name limit 10`),
+   q(`select ${PSEL} from products where active${whCond} order by (image is not null) desc,coalesce(sales_count,0) desc,coalesce(priority,3) asc,name limit 12`)
   ]);
   pubCache={
    wh:!!whR.enabled,
@@ -82,7 +86,9 @@ AI.init({runBroadcast,bustPub});
    videos:vdR.rows,
    cats:ctR.rows,
    saleCount:scR.rows[0].c,
-   families:fmR.rows.map(r=>r.family)
+   families:fmR.rows.map(r=>r.family),
+   homeSales:hsR.rows,
+   homeHits:hhR.rows
   };
   pubExp=Date.now()+30000;
   return pubCache;
@@ -162,7 +168,7 @@ app.get('/api/init',wrap(async(req,res)=>{
   syncKeySet:isAdm?Boolean(String(process.env.SYNC_API_KEY||'').trim()):false,
   ai:isAdm?{ready:AI.isReady(),canAi:AI.canAi(m),model:AI.modelName(),today:AI.getTodayStats()}:null,
   settings:{deliveryEnabled:d.enabled,freeDeliveryThreshold:Math.min(...d.rules.filter(r=>r.fee===0).map(r=>r.minTotal),Infinity),delivery:staff?d:{enabled:d.enabled,minTotal:d.minTotal||0,maxKg:d.maxKg||0,note:d.note||''},animation:pub.anim,support:pub.sup},
-  cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,orders:ordR.rows,
+  cats:pub.cats,categories:pub.cats.map(c=>c.name),families:pub.families,products:[],banners:pub.banners,bundles:pub.bundles,videos:pub.videos,homeSales:pub.homeSales,homeHits:pub.homeHits,orders:ordR.rows,
   pendingProducts:ppR?ppR.rows:[],
   roles:rlR?rlR.rows:null,
   customRoles:crR&&Array.isArray(crR.rows[0]?.value)?crR.rows[0].value:[]
@@ -327,15 +333,24 @@ app.get('/api/stats',need(...ADM),wrap(async(req,res)=>{
  res.json({totals:t,days,granularity:oneDay?'hour':'day',byCat,products:pc,customers:cust.total,newCustomers:cust.added})}));
 const YT=/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/;
 const KIND={banners:['image','title','subtitle','link'],videos:['title','yt_id'],bundles:['title','title_ru','description','description_ru','image','price']};
-const PSEL='id,pos,category,name,name_uz,description,min_grams,min_sum,weight_g,priority,family,sales_count,unit,price,sale_price,sale_until,image,age_min';
-app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),fam=String(req.query.family||'').trim().slice(0,60),sale=req.query.sale==='1',pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
+const EFF_PRICE=`(case when ${SALE_SQL} then sale_price else price end)`;
+app.get('/api/products',wrap(async(req,res)=>{const s=String(req.query.q||'').trim().slice(0,60),cat=String(req.query.cat||''),fam=String(req.query.family||'').trim().slice(0,60),sale=req.query.sale==='1',sort=String(req.query.sort||''),idsRaw=String(req.query.ids||'').trim(),pg=Math.max(0,Math.min(500,+req.query.page||0)),w=['active'],p=[];
+ if(idsRaw){
+  const ids=idsRaw.split(',').map(x=>Math.round(+x)).filter(x=>x>0).slice(0,50);
+  if(!ids.length)return res.json({items:[],more:false});
+  p.push(ids);w.push(`id=any($${p.length}::int[])`);
+ }
  if(s){p.push('%'+s+'%',s);w.push(`(name ilike $${p.length-1} or name_uz ilike $${p.length-1} or barcode=$${p.length})`)}
  if(cat){p.push(cat);const k=p.length;w.push(`(category=$${k} or category in (select name from categories where parent=$${k}) or category in (select c2.name from categories c2 join categories c1 on c2.parent=c1.name where c1.parent=$${k}))`)}
  if(fam){p.push(fam);w.push(`family=$${p.length}`)}
- if(sale)w.push(SALE_SQL);
+ if(sale||sort==='sale')w.push(SALE_SQL);
  const pub=await getPub();
  if(pub.wh)w.push('(stock is null or stock>0)');
- const ord=sale?'coalesce(priority,3) asc,sale_until nulls last,coalesce(sales_count,0) desc,name':(cat&&!s&&!fam?'pos asc nulls last,':'')+'coalesce(priority,3) asc,coalesce(sales_count,0) desc,name';
+ const ord=sort==='cheap'?`${EFF_PRICE} asc,coalesce(sales_count,0) desc,name`
+  :sort==='exp'?`${EFF_PRICE} desc,coalesce(sales_count,0) desc,name`
+  :sort==='pop'?'coalesce(sales_count,0) desc,coalesce(priority,3) asc,name'
+  :(sale||sort==='sale')?'coalesce(priority,3) asc,sale_until nulls last,coalesce(sales_count,0) desc,name'
+  :(cat&&!s&&!fam?'pos asc nulls last,':'')+'coalesce(priority,3) asc,coalesce(sales_count,0) desc,name';
  const r=(await q(`select ${PSEL} from products where ${w.join(' and ')} order by ${ord} limit 51 offset ${pg*50}`,p)).rows;
  res.json({items:r.slice(0,50),more:r.length>50})}));
 /* Manual order inside a category view: move product to place N (1-based); others shift. pos<=0 → reset whole view to automatic order. */

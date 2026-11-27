@@ -90,7 +90,17 @@ const RU={
   "Boshqa bo'limlar":"Другие разделы",
   "AI Yordamchi":"AI Помощник",
   "Buyruq yozing yoki ovoz yuboring...":"Напишите команду или отправьте голос...",
-  "Suhbat tozalandi":"Чат очищен"
+  "Suhbat tozalandi":"Чат очищен",
+  "Qaynoq aksiyalar":"Горячие акции","Xit mahsulotlar":"Хиты продаж",
+  "Oldingi xaridingizdan":"Из прошлых покупок","Sevimlilar":"Избранное",
+  "Sevimlilar ro'yxati bo'sh":"Список избранного пуст",
+  "Sevimlilarga qo'shildi ❤️":"Добавлено в избранное ❤️",
+  "Sevimlilardan olib tashlandi":"Удалено из избранного",
+  "Oxirgi qidiruvlar":"Недавние поиски","Tezkor qidiruv":"Быстрый поиск",
+  "Standart":"Стандарт","Mashhur":"Популярные","Arzonroq":"Дешевле","Qimmatroq":"Дороже",
+  "Bepul yetkazib berish!":"Бесплатная доставка!","Yetkazib berish mumkin!":"Доставка доступна!",
+  "Bepul yetkazishgacha":"До бесплатной доставки","Minimal buyurtmagacha":"До минимального заказа",
+  "Barcha mahsulotlar ko'rsatildi":"Показаны все товары","dona":"шт"
 }
 
 const FAM_PRESETS=['Kundalik ehtiyoj','Nonushta','Oilaviy','Bolalar uchun','Bayramona','Premium']
@@ -305,6 +315,18 @@ const bentoSpans=n=>{
 const lsum=(p,v)=>{const up=effPrice(p);return v.sum||(v.grams?Math.round(up*v.grams/1000):v.qty*up)}
 const keyOf=p=>(p.bundle?'b':'p')+p.id
 const digits=s=>s.replace(/\D/g,'').replace(/^0+/,'')
+const haptic=(t='light')=>{try{if(t==='sel')tg?.HapticFeedback?.selectionChanged?.();else tg?.HapticFeedback?.impactOccurred?.(t)}catch{}}
+const loadFavs=()=>{try{const a=JSON.parse(localStorage.getItem('tegen_favs')||'[]');return Array.isArray(a)?a.map(Number).filter(x=>x>0):[]}catch{return[]}}
+const saveFavs=a=>{try{localStorage.setItem('tegen_favs',JSON.stringify(a.slice(0,100)))}catch{}}
+const loadSearchHist=()=>{try{const a=JSON.parse(localStorage.getItem('tegen_qhist')||'[]');return Array.isArray(a)?a.filter(x=>typeof x==='string'&&x.trim()).slice(0,8):[]}catch{return[]}}
+const saveSearchHist=a=>{try{localStorage.setItem('tegen_qhist',JSON.stringify(a.slice(0,8)))}catch{}}
+const QUICK_SEARCH_TAGS=['Non','Sut','Tuxum','Guruch','Yogʻ','Shakar','Choy','Cola','Olma','Goʻsht']
+const unitBadge=(p,t)=>{
+  if(p.bundle)return null
+  if(p.unit==='weight')return p.min_grams>0?`${p.min_grams} g+`:'1 kg'
+  if(p.weight_g>0)return p.weight_g>=1000?`${+(p.weight_g/1000).toFixed(2)} kg`:`${p.weight_g} g`
+  return '1 '+t('dona')
+}
 const useDebounced=(v,ms=300)=>{const [x,setX]=useState(v);useEffect(()=>{const h=setTimeout(()=>setX(v),ms);return()=>clearTimeout(h)},[v,ms]);return x}
 const upload=file=>new Promise((res,rej)=>{const img=new Image();img.onerror=()=>rej(new Error('Rasm ochilmadi'));img.onload=async()=>{try{const k=Math.min(1,900/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);let data=file.type==='image/png'?c.toDataURL('image/png'):c.toDataURL('image/jpeg',0.82);if(data.length>900000)data=c.toDataURL('image/jpeg',0.8);res((await api('/api/upload','POST',{data})).url)}catch(e){rej(e)}};img.src=URL.createObjectURL(file)})
 
@@ -364,14 +386,62 @@ function PriceTag({p,big=false}){
 }
 
 function Badge({s}){const {t}=useLang();return <span className={'badge '+(ST[s]?.[1]||'gray')}>{t(ST[s]?.[0]||s)}</span>}
-function Thumb({p,cls='img',hideSale=false}){
+function Thumb({p,cls='img',hideSale=false,fav,onFav}){
+  const {t}=useLang()
   const on=!hideSale&&cls==='img'&&isSale(p)
   const pct=on?Math.max(1,Math.round((1-p.sale_price/p.price)*100)):0
+  const ub=cls==='img'?unitBadge(p,t):null
   return <div className={cls} style={p.image?{backgroundImage:`url(${p.image})`}:{}}>
     {!p.image&&<span className="emo">{p.bundle?'🎁':EMO[p.category]||'🛒'}</span>}
     {p.age_min>0&&<i className="age">{p.age_min}+</i>}
+    {onFav&&!p.bundle&&<button type="button" className={'fav-btn'+(fav?' on':'')} aria-label="Sevimli" onClick={e=>{e.stopPropagation();haptic('light');onFav(p.id)}}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill={fav?'currentColor':'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+    </button>}
     {on&&<span className="disc">−{pct}%</span>}
+    {ub&&!on&&<span className="ubadge">{ub}</span>}
     {on&&p.sale_until&&<Countdown until={p.sale_until} mode="card"/>}
+  </div>
+}
+
+function SkeletonGrid({count=6}){
+  return <div className="grid">
+    {Array.from({length:count},(_,i)=><div className="card prod sk-card" key={i}>
+      <div className="sk-img shimmer"/>
+      <div className="pbody">
+        <div className="sk-line w60 shimmer"/>
+        <div className="sk-line w90 shimmer"/>
+        <div className="sk-line w75 shimmer"/>
+        <div className="sk-btn shimmer"/>
+      </div>
+    </div>)}
+  </div>
+}
+
+function ProductCard({p,idx,canPos,onPos,fav,onFav,onOpen,actionBtn,shelf=false}){
+  const {pn}=useLang()
+  const thumb=<Thumb p={p} fav={fav} onFav={onFav}/>
+  return <div className={'card prod'+(shelf?' shelf-card':'')} onClick={()=>onOpen(p)}>
+    {canPos?<div className="pos-wrap">{thumb}<button type="button" className={'pos-badge'+(p.pos?' set':'')} onClick={e=>{e.stopPropagation();onPos({p,n:idx+1})}}>{idx+1}</button></div>:thumb}
+    <div className="pbody">
+      <PriceTag p={p}/>
+      <div className="name">{pn(p)}</div>
+      <div className="pfoot">{actionBtn(p)}</div>
+    </div>
+  </div>
+}
+
+function AutoMore({more,loading,onMore}){
+  const {t}=useLang()
+  const ref=useRef(null)
+  useEffect(()=>{
+    if(!more||loading||typeof IntersectionObserver==='undefined'||!ref.current)return
+    const io=new IntersectionObserver(entries=>{if(entries[0]?.isIntersecting)onMore()},{rootMargin:'240px'})
+    io.observe(ref.current)
+    return()=>io.disconnect()
+  },[more,loading,onMore])
+  if(!more)return null
+  return <div ref={ref} style={{marginTop:12}}>
+    <button type="button" className="btn g" disabled={loading} onClick={onMore}>{loading?t("Yuklanmoqda…"):t("Yana")}</button>
   </div>
 }
 
@@ -397,7 +467,7 @@ function QtyControl({qty,max=500,onChange,variant='',stopProp=true}){
     onChange(n);setDraft(String(n))
   }
   return <div className={'qty'+(variant?' '+variant:'')} onClick={stop}>
-    <button type="button" aria-label="Minus" onClick={e=>{stop(e);onChange(qty>1?qty-1:0)}}>−</button>
+    <button type="button" aria-label="Minus" onClick={e=>{stop(e);haptic('sel');onChange(qty>1?qty-1:0)}}>−</button>
     <input
       className="qinput"
       type="text"
@@ -414,7 +484,7 @@ function QtyControl({qty,max=500,onChange,variant='',stopProp=true}){
       onBlur={()=>{setFocused(false);commit(draft)}}
       onKeyDown={e=>{if(e.key==='Enter'){e.currentTarget.blur()}}}
     />
-    <button type="button" aria-label="Plus" onClick={e=>{stop(e);onChange(Math.min(max,qty+1))}}>+</button>
+    <button type="button" aria-label="Plus" onClick={e=>{stop(e);haptic('sel');onChange(Math.min(max,qty+1))}}>+</button>
   </div>
 }
 
@@ -942,54 +1012,103 @@ function BundleDetail({b,cart,put,close}){
   </div></div>
 }
 
-function Shop({d,cart,setCart,cat,setCat,onReload,say}){
+function Shop({d,cart,setCart,cat,setCat,favs,toggleFav,goTab,onReload,say}){
   const {t,so,pn,cn}=useLang()
-  const [q,setQ]=useState(''),[fam,setFam]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view'),[bdet,setBdet]=useState(null),[subAdd,setSubAdd]=useState(false)
+  const [q,setQ]=useState(''),[fam,setFam]=useState(''),[sort,setSort]=useState(''),[favView,setFavView]=useState(false),[qFocus,setQFocus]=useState(false),[qHist,setQHist]=useState(()=>loadSearchHist())
+  const [items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(false),[sh,setSh]=useState(null),[vid,setVid]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view'),[bdet,setBdet]=useState(null),[subAdd,setSubAdd]=useState(false)
   const dq=useDebounced(q)
-  const home=!dq&&!cat&&!fam
+  const home=!dq&&!cat&&!fam&&!favView
   const tree=buildCatTree(d.cats)
   const fams=d.families||[]
   const isAdm=d.role==='admin'||d.role==='superadmin'
   const [posP,setPosP]=useState(null)
-  const canPos=isAdm&&!!cat&&!dq&&!fam
+  const canPos=isAdm&&!!cat&&!dq&&!fam&&!sort&&!favView
+  const favSet=new Set(favs)
+
+  useEffect(()=>{if(cat||dq)setFavView(false)},[cat,dq])
+  useEffect(()=>{
+    const s=dq.trim()
+    if(s.length>=2){
+      setQHist(prev=>{const next=[s,...prev.filter(x=>x.toLowerCase()!==s.toLowerCase())].slice(0,8);saveSearchHist(next);return next})
+    }
+  },[dq])
 
   const load=useCallback((n,reset)=>{
-    if(!dq&&!cat&&!fam){setItems([]);setMore(false);return}
+    if(!dq&&!cat&&!fam&&!favView){setItems([]);setMore(false);return}
+    if(favView&&!favs.length){setItems([]);setMore(false);return}
     setLoading(true)
-    api(`/api/products?q=${encodeURIComponent(dq)}&cat=${encodeURIComponent(cat)}&family=${encodeURIComponent(fam)}&page=${n}`)
+    const url=favView
+      ?`/api/products?ids=${favs.join(',')}&sort=${encodeURIComponent(sort)}&page=${n}`
+      :`/api/products?q=${encodeURIComponent(dq)}&cat=${encodeURIComponent(cat)}&family=${encodeURIComponent(fam)}&sort=${encodeURIComponent(sort)}&page=${n}`
+    api(url)
       .then(r=>{setItems(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)})
       .catch(()=>{}).finally(()=>setLoading(false))
-  },[dq,cat,fam])
+  },[dq,cat,fam,sort,favView,favs.join(',')])
 
   useEffect(()=>{load(0,true)},[load])
-  useEffect(()=>{setSubAdd(false)},[cat])
+  useEffect(()=>{setSubAdd(false);setSort('')},[cat])
 
-  const put=(p,v)=>setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})
+  const put=(p,v)=>{haptic('light');setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})}
   const st=e=>e.stopPropagation()
 
   const actionBtn=p=>{
     const it=cart[keyOf(p)]
-    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);setSh(p)}}>{it?so(lsum(p,it)):t("Savatga")}</button>
+    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);haptic('light');setSh(p)}}>{it?so(lsum(p,it)):'+ '+t("Savatga")}</button>
     if(it)return <QtyControl qty={it.qty} max={p.bundle?20:500} onChange={n=>put(p,n>0?{qty:n}:null)}/>
-    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>{t("Savatga")}</button>
+    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>+ {t("Savatga")}</button>
   }
 
   const openLink=l=>{const m=/(?:v=|youtu\.be\/|shorts\/)([\w-]{11})/.exec(l||'');if(m)setVid(m[1]);else if(l)tg?.openLink?tg.openLink(l):window.open(l)}
   const curCatObj=tree.byName.get(cat)
   const parentObj=curCatObj?.parent?tree.byName.get(curCatObj.parent):null
-  const subCats=cat&&!dq?tree.childrenOf(cat):[]
+  const subCats=cat&&!dq&&!favView?tree.childrenOf(cat):[]
   const chipList=parentObj?tree.childrenOf(parentObj.name):(subCats.length?subCats:tree.roots)
   const onProdUpd=upd=>{
     setDet(upd)
     setItems(prev=>upd.active===false?prev.filter(x=>x.id!==upd.id):prev.map(x=>x.id===upd.id?{...x,...upd}:x))
   }
+  const openDetail=p=>{haptic('sel');setDetMode('view');setDet(p)}
+
+  // Derive customer's frequently bought items from past valid orders
+  const buyAgain=(()=>{
+    const valid=(d.orders||[]).filter(o=>o.user_id==d.user?.telegramId&&o.status!=='cancelled')
+    const map=new Map()
+    for(const o of valid){
+      for(const i of (o.items||[])){
+        if(!i.product_id||i.active===false||!(i.cur_price||i.unit_price))continue
+        const cur=map.get(i.product_id)||{cnt:0,p:{id:i.product_id,name:i.name,name_uz:i.name_uz,price:i.cur_price||i.unit_price,sale_price:i.sale_price,sale_until:i.sale_until,unit:i.unit,image:i.image,category:i.category||'Boshqa',age_min:i.age_min||0,min_grams:i.min_grams||0,min_sum:i.min_sum||0,weight_g:i.weight_g||0}}
+        cur.cnt+=Number(i.qty)||1
+        map.set(i.product_id,cur)
+      }
+    }
+    return [...map.values()].sort((a,b)=>b.cnt-a.cnt).slice(0,10).map(x=>x.p)
+  })()
+  const homeSales=d.homeSales||[]
+  const homeHits=d.homeHits||[]
 
   return <>
-    <div className="search-box">
-      <span className="search-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
-      <input className="search" placeholder={t("Mahsulot qidirish...")} value={q} onChange={e=>setQ(e.target.value)}/>
-      {q&&<button className="search-clr" onClick={()=>setQ('')}>✕</button>}
+    <div className="search-row">
+      <div className="search-box" style={{flex:1,marginTop:0}}>
+        <span className="search-ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+        <input className="search" placeholder={t("Mahsulot qidirish...")} value={q} onFocus={()=>setQFocus(true)} onBlur={()=>setTimeout(()=>setQFocus(false),160)} onChange={e=>setQ(e.target.value)}/>
+        {q&&<button className="search-clr" onClick={()=>setQ('')}>✕</button>}
+      </div>
+      <button type="button" className={'fav-pill'+(favView?' on':'')} onClick={()=>{haptic('light');setQ('');setCat('');setFam('');setSort('');setFavView(v=>!v)}} title={t("Sevimlilar")}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill={favView||favs.length?'currentColor':'none'} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+        {favs.length>0&&<span>{favs.length}</span>}
+      </button>
     </div>
+
+    {qFocus&&!q&&<div className="q-suggest" onMouseDown={e=>e.preventDefault()}>
+      {qHist.length>0&&<div className="qs-sec">
+        <div className="qs-head"><span>🕒 {t("Oxirgi qidiruvlar")}</span><button type="button" onClick={()=>{setQHist([]);saveSearchHist([])}}>{t("Tozalash")}</button></div>
+        <div className="qs-chips">{qHist.map(h=><button key={h} type="button" className="qs-chip" onClick={()=>{setQ(h);setQFocus(false)}}>{h}</button>)}</div>
+      </div>}
+      <div className="qs-sec">
+        <div className="qs-head"><span>🔥 {t("Tezkor qidiruv")}</span></div>
+        <div className="qs-chips">{QUICK_SEARCH_TAGS.map(tgName=><button key={tgName} type="button" className="qs-chip" onClick={()=>{setQ(tgName);setQFocus(false)}}>{tgName}</button>)}</div>
+      </div>
+    </div>}
 
     {home?<>
       {d.banners.length>0&&<HeroBanners banners={d.banners} onOpen={openLink}/>}
@@ -997,6 +1116,23 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
       {fams.length>0&&<div className="chips" style={{paddingTop:4}}>
         {fams.map(fm=><button key={fm} className="chip" onClick={()=>{setFam(fm);scrollTo({top:0,behavior:'smooth'})}}>⭐ {t(fm)}</button>)}
       </div>}
+
+      {buyAgain.length>0&&<>
+        <div className="sec-head"><h2 className="sec">🔄 {t("Oldingi xaridingizdan")}</h2></div>
+        <div className="hrow shelf-row">
+          {buyAgain.map(p=><ProductCard key={'ba:'+p.id} p={p} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
+        </div>
+      </>}
+
+      {homeSales.length>0&&<>
+        <div className="sec-head">
+          <h2 className="sec">🔥 {t("Qaynoq aksiyalar")}</h2>
+          {goTab&&<button type="button" className="sec-link" onClick={()=>{goTab('promo');scrollTo({top:0,behavior:'smooth'})}}>{t("Hammasi")} →</button>}
+        </div>
+        <div className="hrow shelf-row">
+          {homeSales.map(p=><ProductCard key={'hs:'+p.id} p={p} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn} shelf/>)}
+        </div>
+      </>}
 
       {d.videos.length>0&&<>
         <div className="sec-head"><h2 className="sec">▶ {t("Yangiliklar")}</h2></div>
@@ -1009,20 +1145,27 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
       </>}
 
       <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>
+
+      {homeHits.length>0&&<>
+        <div className="sec-head"><h2 className="sec">⭐ {t("Xit mahsulotlar")}</h2></div>
+        <div className="grid">
+          {homeHits.map((p,i)=><ProductCard key={'hh:'+p.id} p={p} idx={i} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn}/>)}
+        </div>
+      </>}
     </>:<>
       <div className="cat-bar">
-        <button className="back-btn" aria-label="Back" onClick={()=>{if(dq){setQ('')}else if(fam&&!cat){setFam('')}else if(parentObj){setCat(parentObj.name)}else{setCat('');setFam('')}}}>
+        <button className="back-btn" aria-label="Back" onClick={()=>{if(favView){setFavView(false)}else if(dq){setQ('')}else if(fam&&!cat){setFam('')}else if(parentObj){setCat(parentObj.name)}else{setCat('');setFam('')}}}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
-        <h1>{dq?t("Qidiruv natijalari"):(parentObj?cn(parentObj):(curCatObj?cn(curCatObj):(fam?t(fam):cat)))}</h1>
-        {isAdm&&cat&&!dq&&(!curCatObj?.parent)&&<button type="button" className="btn s g" style={{flex:'none'}} onClick={()=>setSubAdd(o=>!o)}>{subAdd?'✕':"+ Bo'lim"}</button>}
+        <h1>{favView?'❤️ '+t("Sevimlilar"):dq?t("Qidiruv natijalari"):(parentObj?cn(parentObj):(curCatObj?cn(curCatObj):(fam?t(fam):cat)))}</h1>
+        {isAdm&&cat&&!dq&&!favView&&(!curCatObj?.parent)&&<button type="button" className="btn s g" style={{flex:'none'}} onClick={()=>setSubAdd(o=>!o)}>{subAdd?'✕':"+ Bo'lim"}</button>}
       </div>
 
-      {isAdm&&subAdd&&cat&&!dq&&<QuickSubCatBox parent={cat} onReload={onReload} say={say} close={()=>setSubAdd(false)}/>}
+      {isAdm&&subAdd&&cat&&!dq&&!favView&&<QuickSubCatBox parent={cat} onReload={onReload} say={say} close={()=>setSubAdd(false)}/>}
 
       {subCats.length>0&&<BentoTileGrid items={subCats} parentName={cat} tree={tree} isAdm={isAdm} onPick={name=>{setCat(name);scrollTo({top:0,behavior:'smooth'})}} onReload={onReload} say={say}/>}
 
-      {parentObj&&!dq&&<>
+      {parentObj&&!dq&&!favView&&<>
         <div className="sub-tabs">
           <button type="button" className={'sub-tab'+(cat===parentObj.name?' on':'')} onClick={()=>setCat(parentObj.name)}>{t("Hammasi")}</button>
           {chipList.map(c=><button key={c.name} type="button" className={'sub-tab'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{cn(c)}</button>)}
@@ -1030,29 +1173,30 @@ function Shop({d,cart,setCart,cat,setCat,onReload,say}){
         <h2 className="sub-sec-title">{curCatObj?cn(curCatObj):cat}</h2>
       </>}
 
-      {!parentObj&&!subCats.length&&<div className="chips">
+      {!parentObj&&!subCats.length&&!favView&&<div className="chips">
         <button className={'chip'+(!cat&&!fam?' on':'')} onClick={()=>{setCat('');setFam('')}}>{dq?t("Hammasi"):'🏠 '+t("Bosh sahifa")}</button>
         {chipList.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
       </div>}
 
-      {fams.length>0&&<div className="chips sub">
+      {fams.length>0&&!favView&&<div className="chips sub">
         <button className={'chip'+(!fam?' on':'')} onClick={()=>setFam('')}>{t("Hammasi")}</button>
         {fams.map(fm=><button key={fm} className={'chip'+(fam===fm?' on':'')} onClick={()=>setFam(fm)}>⭐ {t(fm)}</button>)}
       </div>}
 
-      <div className="grid">
-        {items.map((p,i)=><div className="card prod" key={p.id} onClick={()=>{setDetMode('view');setDet(p)}}>
-          {canPos?<div className="pos-wrap"><Thumb p={p}/><button type="button" className={'pos-badge'+(p.pos?' set':'')} onClick={e=>{st(e);setPosP({p,n:i+1})}}>{i+1}</button></div>:<Thumb p={p}/>}
-          <div className="pbody">
-            <PriceTag p={p}/>
-            <div className="name">{pn(p)}</div>
-            <div className="pfoot">{actionBtn(p)}</div>
-          </div>
-        </div>)}
+      <div className="sort-bar">
+        {[['','✨ '+t("Standart")],['pop','🔥 '+t("Mashhur")],['cheap','💰 '+t("Arzonroq")],['exp','💎 '+t("Qimmatroq")],['sale','🏷 '+t("Aksiya")]].map(([k,l])=>
+          <button key={k} type="button" className={'sort-chip'+(sort===k?' on':'')} onClick={()=>{haptic('sel');setSort(k)}}>{l}</button>
+        )}
       </div>
-      {loading&&!items.length&&<div className="center" style={{minHeight:160}}>{t("Yuklanmoqda…")}</div>}
-      {!loading&&!items.length&&<div className="center" style={{minHeight:160}}>{t("Hech narsa topilmadi")}</div>}
-      {more&&<button className="btn g" style={{marginTop:12}} onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}
+
+      {loading&&!items.length?<SkeletonGrid count={6}/>:<div className="grid">
+        {items.map((p,i)=><ProductCard key={p.id} p={p} idx={i} canPos={canPos} onPos={setPosP} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn}/>)}
+      </div>}
+      {!loading&&!items.length&&<div className="empty-box">
+        <span>{favView?'❤️':'🔍'}</span>
+        <b>{favView?t("Sevimlilar ro'yxati bo'sh"):t("Hech narsa topilmadi")}</b>
+      </div>}
+      <AutoMore more={more} loading={loading} onMore={()=>load(pg+1,false)}/>
     </>}
 
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}} onAdminOpen={isAdm?p=>{setDetMode('stats');setDet(p)}:undefined}/>}
@@ -1172,30 +1316,32 @@ function ScrollTopBtn(){
   </button>
 }
 
-function Promo({d,cart,setCart,onReload,say}){
-  const {t,so,pn,cn}=useLang()
+function Promo({d,cart,setCart,favs,toggleFav,onReload,say}){
+  const {t,so,cn}=useLang()
   const tree=buildCatTree(d.cats)
   const isAdm=d.role==='admin'||d.role==='superadmin'
-  const [cat,setCat]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(true),[sh,setSh]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view')
+  const [cat,setCat]=useState(''),[sort,setSort]=useState(''),[items,setItems]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[loading,setLoading]=useState(true),[sh,setSh]=useState(null),[det,setDet]=useState(null),[detMode,setDetMode]=useState('view')
+  const favSet=new Set(favs||[])
   const load=useCallback((n,reset)=>{
     setLoading(true)
-    api(`/api/products?sale=1&cat=${encodeURIComponent(cat)}&page=${n}`)
+    api(`/api/products?sale=1&cat=${encodeURIComponent(cat)}&sort=${encodeURIComponent(sort)}&page=${n}`)
       .then(r=>{setItems(x=>reset?r.items:[...x,...r.items]);setMore(r.more);setPg(n)})
       .catch(()=>{}).finally(()=>setLoading(false))
-  },[cat])
+  },[cat,sort])
   useEffect(()=>{load(0,true)},[load])
-  const put=(p,v)=>setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})
+  const put=(p,v)=>{haptic('light');setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})}
   const st=e=>e.stopPropagation()
   const actionBtn=p=>{
     const it=cart[keyOf(p)]
-    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);setSh(p)}}>{it?so(lsum(p,it)):t("Savatga")}</button>
+    if(p.unit==='weight')return <button className={'add-full'+(it?' weight-in':'')} onClick={e=>{st(e);haptic('light');setSh(p)}}>{it?so(lsum(p,it)):'+ '+t("Savatga")}</button>
     if(it)return <QtyControl qty={it.qty} max={500} onChange={n=>put(p,n>0?{qty:n}:null)}/>
-    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>{t("Savatga")}</button>
+    return <button className="add-full" onClick={e=>{st(e);put(p,{qty:1})}}>+ {t("Savatga")}</button>
   }
   const onProdUpd=upd=>{
     setDet(upd)
     setItems(prev=>upd.active===false?prev.filter(x=>x.id!==upd.id):prev.map(x=>x.id===upd.id?{...x,...upd}:x))
   }
+  const openDetail=p=>{haptic('sel');setDetMode('view');setDet(p)}
   return <>
     <div className="sale-hero">
       <h1>🔥 {t("Aksiya va chegirmalar")}</h1>
@@ -1205,19 +1351,16 @@ function Promo({d,cart,setCart,onReload,say}){
       <button className={'chip'+(!cat?' on':'')} onClick={()=>setCat('')}>{t("Hammasi")}</button>
       {tree.roots.map(c=><button key={c.name} className={'chip'+(cat===c.name?' on':'')} onClick={()=>setCat(c.name)}>{(EMO[c.name]||'')+' '+cn(c)}</button>)}
     </div>
-    <div className="grid">
-      {items.map(p=><div className="card prod" key={p.id} onClick={()=>{setDetMode('view');setDet(p)}}>
-        <Thumb p={p}/>
-        <div className="pbody">
-          <PriceTag p={p}/>
-          <div className="name">{pn(p)}</div>
-          <div className="pfoot">{actionBtn(p)}</div>
-        </div>
-      </div>)}
+    <div className="sort-bar">
+      {[['','✨ '+t("Standart")],['pop','🔥 '+t("Mashhur")],['cheap','💰 '+t("Arzonroq")],['exp','💎 '+t("Qimmatroq")]].map(([k,l])=>
+        <button key={k} type="button" className={'sort-chip'+(sort===k?' on':'')} onClick={()=>{haptic('sel');setSort(k)}}>{l}</button>
+      )}
     </div>
-    {loading&&!items.length&&<div className="center" style={{minHeight:160}}>{t("Yuklanmoqda…")}</div>}
-    {!loading&&!items.length&&<div className="center" style={{minHeight:180}}>{t("Hozircha aksiya mahsulotlari yo'q")}</div>}
-    {more&&<button className="btn g" style={{marginTop:12}} onClick={()=>load(pg+1,false)}>{t("Yana")}</button>}
+    {loading&&!items.length?<SkeletonGrid count={6}/>:<div className="grid">
+      {items.map((p,i)=><ProductCard key={p.id} p={p} idx={i} fav={favSet.has(p.id)} onFav={toggleFav} onOpen={openDetail} actionBtn={actionBtn}/>)}
+    </div>}
+    {!loading&&!items.length&&<div className="empty-box"><span>🏷</span><b>{t("Hozircha aksiya mahsulotlari yo'q")}</b></div>}
+    <AutoMore more={more} loading={loading} onMore={()=>load(pg+1,false)}/>
     {sh&&<WeightSheet p={sh} cur={cart[keyOf(sh)]} close={()=>setSh(null)} set={v=>{put(sh,v);setSh(null)}} onAdminOpen={isAdm?p=>{setDetMode('stats');setDet(p)}:undefined}/>}
     {det&&<Detail key={det.id+':'+detMode} p={det} d={d} cart={cart} put={put} close={()=>setDet(null)} onWeight={setSh} initMode={detMode} onReload={onReload} onProductUpdated={onProdUpd} say={say}/>}
   </>
@@ -1231,6 +1374,27 @@ function Catalog({d,go,onReload,say}){
     <h1>{t("Katalog")}</h1>
     <CategoryBentoCatalog tree={tree} isAdm={isAdm} onPick={go} onReload={onReload} say={say} hideTitle/>
   </>
+}
+
+function DeliveryMeter({d,sub}){
+  const {t,so}=useLang()
+  const dl=d.settings?.delivery
+  if(!dl?.enabled)return null
+  const freeT=Number(d.settings?.freeDeliveryThreshold)
+  const minT=Number(dl.minTotal)||0
+  const hasFree=Number.isFinite(freeT)&&freeT>0
+  const target=hasFree?freeT:minT
+  if(!(target>0))return null
+  const pct=Math.min(100,Math.round((sub/target)*100))
+  const rem=Math.max(0,target-sub)
+  const done=rem<=0
+  const lbl=hasFree
+    ?(done?'🎉 '+t("Bepul yetkazib berish!"):`🚚 ${t("Bepul yetkazishgacha")}: ${so(rem)}`)
+    :(done?'✅ '+t("Yetkazib berish mumkin!"):`🚚 ${t("Minimal buyurtmagacha")}: ${so(rem)}`)
+  return <div className={'dl-meter'+(done?' ok':'')}>
+    <div className="dl-meter-top"><span>{lbl}</span><b>{pct}%</b></div>
+    <div className="dl-meter-bar"><i style={{width:pct+'%'}}/></div>
+  </div>
 }
 
 function Cart({d,cart,setCart,act,done,onReload}){
@@ -1249,14 +1413,15 @@ function Cart({d,cart,setCart,act,done,onReload}){
   },0)
   const prods=lines.filter(l=>!l.p.bundle),cats=[...new Set(prods.map(l=>l.p.category))].join('|'),ex=prods.map(l=>l.p.id).join(',')
   useEffect(()=>{if(!cats){setRec([]);return}api(`/api/recommend?cats=${encodeURIComponent(cats)}&ex=${ex}`).then(setRec).catch(()=>{})},[cats,ex])
-  const put=(p,v)=>setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})
-  if(!lines.length)return <div className="center" style={{minHeight:300}}>{t("🛒 Savat bo'sh")}</div>
+  const put=(p,v)=>{haptic('light');setCart(c=>{const n={...c},k=keyOf(p);v?n[k]={p,...v}:delete n[k];return n})}
+  if(!lines.length)return <div className="empty-box" style={{minHeight:300}}><span>🛒</span><b>{t("🛒 Savat bo'sh")}</b></div>
   const needPhone=!d.user.phone
   const phoneOk=!needPhone||phone.replace(/\D/g,'').length>=9
   const minT=dl.minTotal||0,maxKg=Number(dl.maxKg)||0,overKg=type==='delivery'&&maxKg>0&&estKg>maxKg
   const ok=phoneOk&&(type==='pickup'||(sub>=minT&&!overKg&&addr.trim().length>=5))
   return <>
     <h1>{t("Savat")}</h1>
+    <DeliveryMeter d={d} sub={sub}/>
     <div className="card">
       {lines.map(({k,p,v})=><div className="cart-item" key={k}>
         <div className="gap" style={{alignItems:'center',flexWrap:'nowrap',minWidth:0,flex:1}} onClick={()=>p.unit==='weight'&&setSh(p)}>
@@ -1318,18 +1483,39 @@ function Cart({d,cart,setCart,act,done,onReload}){
   </>
 }
 
+function OrderTracker({status}){
+  const {t}=useLang()
+  if(status==='cancelled')return null
+  const steps=[['accepted','✓',t("Qabul")],['preparing','⚙️',t("Yig'ilmoqda")],['ready','🛍',t("Tayyor")],['completed','🎉',t("Yakunlandi")]]
+  const idx=status==='completed'?3:status==='ready'?2:(['preparing','awaiting_confirm','sub_pending'].includes(status)?1:status==='accepted'?0:-1)
+  return <div className="ord-track">
+    {steps.map(([k,ico,lbl],i)=>{
+      const done=i<=idx,cur=i===idx||(idx===-1&&i===0)
+      return <div key={k} className={'ot-step'+(done?' done':'')+(cur?' cur':'')}>
+        <div className="ot-node">{done?'✓':ico}</div>
+        <span>{lbl}</span>
+        {i<steps.length-1&&<i className={'ot-line'+(i<idx?' done':'')}/>}
+      </div>
+    })}
+  </div>
+}
+
 function Orders({d,act}){
   const {t,so}=useLang()
   const [ed,setEd]=useState(null),mine=d.orders.filter(o=>o.user_id==d.user.telegramId),post=(o,p,b,m)=>act(()=>api(`/api/orders/${o.id}/${p}`,'POST',b),m)
-  if(!mine.length)return <div className="center" style={{minHeight:300}}>{t("Buyurtmalar yo'q")}</div>
-  return <><h1>{t("Buyurtmalarim")}</h1>{mine.map(o=><div className="card" key={o.id}>
-    <div className="row"><b>#{o.id}</b><Badge s={o.status}/></div>
+  if(!mine.length)return <div className="empty-box" style={{minHeight:300}}><span>📦</span><b>{t("Buyurtmalar yo'q")}</b></div>
+  return <><h1>{t("Buyurtmalarim")}</h1>{mine.map(o=><div className="card ord-card" key={o.id}>
+    <div className="row" style={{marginTop:0}}><b>#{o.id}</b><Badge s={o.status}/></div>
     {o.created_at&&<div className="m" style={{marginBottom:6}}>{fmtDt(o.created_at)}</div>}
+    <OrderTracker status={o.status}/>
+    {o.status==='ready'&&o.code&&<div className="ready-code-box">
+      <span>{t("Olib ketish kodi")}</span>
+      <b>{o.code}</b>
+    </div>}
     {o.items.map(i=><div className="row" key={i.id}><span className="gap" style={{alignItems:'center',flexWrap:'nowrap'}}><Thumb p={{image:i.image,category:'Boshqa'}} cls="ci sm"/><span style={{fontSize:13}}>{i.name}{i.sub_status==='proposed'&&<b> → {i.sub_name}</b>}</span></span>
       {ed?.id===o.id&&i.unit==='piece'?<QtyControl qty={ed.ch[i.id]||0} max={500} variant="soft compact" onChange={n=>setEd({...ed,ch:{...ed.ch,[i.id]:n}})}/>:<span className="m">{so(i.actual_sum??i.ordered_sum)}</span>}</div>)}
     <div className="row"><span>{o.type==='delivery'?'🚚 '+t("Yetkazib berish"):t("🏃 Olib ketish")}</span><b>{so(o.total)}</b></div>
     {o.type==='delivery'&&o.status==='new'&&<div className="m">📞 Administrator siz bilan bog'lanadi</div>}
-    {o.status==='ready'&&<div className="row"><span>{t("Olib ketish kodi")}</span><b style={{fontSize:20,color:'#E11D48'}}>{o.code}</b></div>}
     {o.status==='awaiting_confirm'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>⚖️ Tortgandan so'ng narx o'zgardi. Yangi mahsulotlar jami: <b>{so(o.pending_subtotal)}</b></div>
       <div className="gap"><button className="btn k" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:true},'Tasdiqlandi')}>{t("Roziman")}</button><button className="btn g" style={{flex:1}} onClick={()=>post(o,'confirm',{accept:false},'Bekor qilindi')}>{t("Bekor qilish")}</button></div></>}
     {o.status==='sub_pending'&&<><div className="card" style={{background:'#FFFBEB',borderColor:'#FDE68A'}}>🔁 Almashtirish taklifi:{o.items.filter(i=>i.sub_status==='proposed').map(i=><div key={i.id}>{i.name} → <b>{i.sub_name}</b> ({so(i.sub_price)})</div>)}</div>
@@ -2776,10 +2962,18 @@ function AiSheet({d,msgs,setMsgs,onReload,say,close}){
 export default function App(){
   const [lang,setLang]=useState(()=>{try{return localStorage.getItem('lang')||(tg?.initDataUnsafe?.user?.language_code==='ru'?'ru':'uz')}catch{return 'uz'}})
   const [d,setD]=useState(null),[err,setErr]=useState(''),[tab,setTab]=useState('shop'),[cart,setCart]=useState({}),[toast,setToast]=useState(''),[cat,setCat]=useState('')
+  const [favs,setFavs]=useState(()=>loadFavs())
   const [animOverride,setAnimOverride]=useState(null)
   const [aiOpen,setAiOpen]=useState(false),[aiMsgs,setAiMsgs]=useState([])
   const syncedRef=useRef(false)
   const say=m=>{setToast(m);setTimeout(()=>setToast(''),2500)}
+  const toggleFav=id=>setFavs(prev=>{
+    const has=prev.includes(id)
+    const next=has?prev.filter(x=>x!==id):[id,...prev]
+    saveFavs(next)
+    say((lang==='ru'&&RU[has?"Sevimlilardan olib tashlandi":"Sevimlilarga qo'shildi ❤️"])||(has?"Sevimlilardan olib tashlandi":"Sevimlilarga qo'shildi ❤️"))
+    return next
+  })
   const load=useCallback(()=>api('/api/init').then(res=>{
     setD(res)
     if(!syncedRef.current){
@@ -2809,7 +3003,7 @@ export default function App(){
   const act=async(fn,ok)=>{try{await fn();ok&&say(ok);await load()}catch(e){say(e.message)}}
 
   if(err)return <div className="center">⚠️ {err}<br/>Ilovani Telegram bot orqali oching.</div>
-  if(!d)return <div className="center">{t("Yuklanmoqda…")}</div>
+  if(!d)return <div className="app"><div className="top-wrap"><div className="top"><div className="logo">T</div><div className="brand"><b>TEGEN Market</b><small>{t("Yuklanmoqda…")}</small></div></div></div><SkeletonGrid count={6}/></div>
 
   const entries=Object.values(cart)
   const n=entries.length
@@ -2818,6 +3012,12 @@ export default function App(){
   const tabs=[['shop',"Do'kon"],['catalog','Katalog'],['promo','Aksiya'],['cart','Savat'],['orders','Buyurtma'],['profile','Profil']]
   const activePreset=animOverride??(d.settings.animation?.preset||'none')
   const showAiBtn=d.role==='superadmin'||(d.role==='admin'&&!!d.user?.canAi)
+  const dl=d.settings?.delivery
+  const freeT=Number(d.settings?.freeDeliveryThreshold)
+  const hasFree=dl?.enabled&&Number.isFinite(freeT)&&freeT>0
+  const barTarget=hasFree?freeT:(dl?.enabled?(Number(dl.minTotal)||0):0)
+  const barRem=barTarget>0?Math.max(0,barTarget-cartTotal):0
+  const barPct=barTarget>0?Math.min(100,Math.round((cartTotal/barTarget)*100)):0
 
   return <LangCtx.Provider value={lang}>
     <FestiveOverlay preset={activePreset}/>
@@ -2831,9 +3031,9 @@ export default function App(){
         </div>
       </div>
 
-      {tab==='shop'&&<Shop d={d} cart={cart} setCart={setCart} cat={cat} setCat={setCat} onReload={load} say={say}/>}
+      {tab==='shop'&&<Shop d={d} cart={cart} setCart={setCart} cat={cat} setCat={setCat} favs={favs} toggleFav={toggleFav} goTab={setTab} onReload={load} say={say}/>}
       {tab==='catalog'&&<Catalog d={d} go={c=>{setCat(c);setTab('shop');scrollTo({top:0})}} onReload={load} say={say}/>}
-      {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart} onReload={load} say={say}/>}
+      {tab==='promo'&&<Promo d={d} cart={cart} setCart={setCart} favs={favs} toggleFav={toggleFav} onReload={load} say={say}/>}
       {tab==='cart'&&<Cart d={d} cart={cart} setCart={setCart} act={act} done={()=>setTab('orders')} onReload={load}/>}
       {tab==='orders'&&<Orders d={d} act={act}/>}
       {tab==='profile'&&<Profile d={d} go={setTab} onToggleLang={toggleLang} cart={cart} setCart={setCart} say={say} act={act} onReload={load}/>}
@@ -2841,13 +3041,16 @@ export default function App(){
 
       {(tab==='shop'||tab==='catalog'||tab==='promo')&&<ScrollTopBtn/>}
 
-      {showBar&&<button className="cart-bar" onClick={()=>setTab('cart')}>
-        <span className="cb-l"><span className="cb-n">{n}</span><span>{t("Savatga o'tish")}</span></span>
-        <span className="cb-r">{so(cartTotal)} →</span>
+      {showBar&&<button className="cart-bar" onClick={()=>{haptic('light');setTab('cart')}}>
+        {barTarget>0&&<div className="cb-prog"><span className="cb-prog-txt">{barRem>0?(hasFree?`🚚 ${t("Bepul yetkazishgacha")}: ${so(barRem)}`:`🚚 ${t("Minimal buyurtmagacha")}: ${so(barRem)}`):(hasFree?'🎉 '+t("Bepul yetkazib berish!"):'✅ '+t("Yetkazib berish mumkin!"))}</span><i style={{width:barPct+'%'}}/></div>}
+        <div className="cb-main">
+          <span className="cb-l"><span className="cb-n">{n}</span><span>{t("Savatga o'tish")}</span></span>
+          <span className="cb-r">{so(cartTotal)} →</span>
+        </div>
       </button>}
 
       <div className="nav">
-        {tabs.map(([k,l])=><button key={k} className={tab===k?'on':''} onClick={()=>{if(k==='shop')setCat('');if(k!=='admin')setAnimOverride(null);setTab(k);scrollTo({top:0})}}>
+        {tabs.map(([k,l])=><button key={k} className={tab===k?'on':''} onClick={()=>{haptic('sel');if(k==='shop')setCat('');if(k!=='admin')setAnimOverride(null);setTab(k);scrollTo({top:0})}}>
           <NavIcon k={k}/><span>{t(l)}</span>{k==='cart'&&n>0&&<i>{n}</i>}{k==='promo'&&d.saleCount>0&&<i>{d.saleCount}</i>}
         </button>)}
       </div>
