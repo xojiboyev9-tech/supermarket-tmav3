@@ -561,7 +561,7 @@ async function autoOrganize(actorId,opts={}){
  const rootSet=new Set(cats.filter(c=>!c.parent).map(c=>c.name));
  const prods=(await q('select id,name,name_uz,unit,price,category,min_sum,min_grams,active,needs_setup from products order by id')).rows;
 
- let catMoved=0,uzFilled=0,weightUpdated=0,subCreated=0,setupCleared=0;
+ let catMoved=0,uzFilled=0,weightUpdated=0,subCreated=0,setupCleared=0,activeCnt=0,inactiveCnt=0,setupCnt=0;
  const byCatCount={};
  const cl=await pool.connect();
  try{
@@ -623,14 +623,16 @@ async function autoOrganize(actorId,opts={}){
      [nextCat,nextUz,nextUnit,nextMinSum,nextSetup,nextActive,p.id]
     );
    }
-   if(nextActive||nextSetup)byCatCount[nextCat]=(byCatCount[nextCat]||0)+1;
+   if(nextActive)activeCnt++;else inactiveCnt++;
+   if(nextSetup)setupCnt++;
+   byCatCount[nextCat]=(byCatCount[nextCat]||0)+1;
   }
 
   await cl.query('commit');
  }catch(e){await cl.query('rollback');throw e}finally{cl.release()}
 
- await audit(actorId,'products.auto_organize','products',{scanned:prods.length,catMoved,uzFilled,weightUpdated,subCreated,setupCleared,minWeightSum});
- return {scanned:prods.length,catMoved,uzFilled,weightUpdated,subCreated,setupCleared,minWeightSum,byCatCount};
+ await audit(actorId,'products.auto_organize','products',{scanned:prods.length,activeCnt,inactiveCnt,setupCnt,catMoved,uzFilled,weightUpdated,subCreated,setupCleared,minWeightSum});
+ return {scanned:prods.length,activeCnt,inactiveCnt,setupCnt,catMoved,uzFilled,weightUpdated,subCreated,setupCleared,minWeightSum,byCatCount};
 }
 
 module.exports={autoOrganize,toUzName,pickCategory,isWeightProduct};
