@@ -262,7 +262,7 @@ app.get('/api/admin/products/auto-images/status',need(...ADM),wrap(async(req,res
  res.json({...IMG.getJobStatus(),missingActive,missingAll});
 }));
 app.post('/api/admin/products/auto-images/start',need(...ADM),wrap(async(req,res)=>{
- const st=await IMG.startBatchJob(req.me.tg_id,{scope:req.body?.scope==='all'?'all':'active',onUpdate:bustPub});
+ const st=await IMG.startBatchJob(req.me.tg_id,{scope:req.body?.scope==='all'?'all':'active',replaceAuto:!!req.body?.replaceAuto,onUpdate:bustPub});
  res.json(st);
 }));
 app.post('/api/admin/products/auto-images/stop',need(...ADM),wrap(async(req,res)=>{
@@ -483,7 +483,7 @@ app.post('/api/orders/:id/edit-apply',wrap(async(req,res)=>{await O.editApply(re
 
 (async()=>{const port=process.env.PORT||8080;
  await S.initSecurity(notifyAutoBlock);
- try{const r=await ORG.autoOrganize(0,{minWeightSum:30000});bustPub();if(r.catMoved||r.uzFilled||r.weightUpdated)console.log('[auto-organize]',r.catMoved,'cats,',r.uzFilled,'uz,',r.weightUpdated,'weight 30k');IMG.startBatchJob(0,{scope:'active',onUpdate:bustPub}).catch(()=>{})}catch(e){console.error('[auto-organize]',e.message)}
+ try{const r=await ORG.autoOrganize(0,{minWeightSum:30000});bustPub();if(r.catMoved||r.uzFilled||r.weightUpdated)console.log('[auto-organize]',r.catMoved,'cats,',r.uzFilled,'uz,',r.weightUpdated,'weight 30k');IMG.startBatchJob(0,{scope:'active',replaceAuto:true,onUpdate:bustPub}).catch(()=>{})}catch(e){console.error('[auto-organize]',e.message)}
  if(process.env.PUBLIC_URL&&process.env.BOT_TOKEN){app.use(await bot.createWebhook({domain:process.env.PUBLIC_URL.replace(/^https?:\/\//,'').replace(/\/+$/,''),path:'/bot',secret_token:process.env.WEBHOOK_SECRET}))}
  else if(process.env.BOT_TOKEN)bot.launch();
  const path=require('path'),fs=require('fs'),pub=path.join(__dirname,'../public');
