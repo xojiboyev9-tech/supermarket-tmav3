@@ -2568,6 +2568,9 @@ function Products({d,act,say,onReload,initState,initCat}){
       }}>{orgBusy?'⏳ Ajratilmoqda…':"🪄 Bo'limlarga ajratish + O'zbekcha nom + Kiloga 30 000 so'm"}</button>
       {orgRes&&<div style={{marginTop:8,padding:8,borderRadius:10,background:'#ECFDF5',color:'#065F46',fontSize:12.5,fontWeight:600}}>
         ✅ Tekshirildi: {orgRes.scanned} ta · Bo'limga joylandi: <b>{orgRes.catMoved}</b> ta · O'zbekcha nom berildi: <b>{orgRes.uzFilled}</b> ta · Kiloli 30 000 so'm: <b>{orgRes.weightUpdated}</b> ta{orgRes.subCreated>0?` · Yangi ichki bo'lim: ${orgRes.subCreated} ta`:''}
+        {orgRes.byCatCount&&<div className="chips" style={{marginTop:6,paddingBottom:0}}>
+          {Object.entries(orgRes.byCatCount).sort((a,b)=>b[1]-a[1]).map(([cnm,cnt])=><button key={cnm} type="button" className="chip" style={{fontSize:11.5,padding:'4px 9px'}} onClick={()=>setCat(cnm)}>📁 {cnm}: <b>{cnt}</b></button>)}
+        </div>}
       </div>}
     </div>}
 
