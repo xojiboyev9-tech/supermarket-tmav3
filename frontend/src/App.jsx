@@ -2276,6 +2276,18 @@ function ProductFields({f,setF,dept,tree,cats,families,onReload,onPick,onSave,on
   const unitOpts=[{value:'piece',label:'Dona',sub:'Donalab sotiladi',icon:'📦'},{value:'weight',label:"Og'irlik (kg)",sub:'Kilogramm / summa bilan',icon:'⚖️'}]
   const ageOpts=[{value:'0',label:"Yosh: yo'q",icon:'✅'},{value:'16',label:'16+',icon:'🔞'},{value:'18',label:'18+',icon:'🔞'},{value:'20',label:'20+',icon:'🔞'},{value:'21',label:'21+',icon:'🔞'}]
   const catList=cats||tree?.flat||[]
+  const [webImgs,setWebImgs]=useState([]),[webBusy,setWebBusy]=useState(false)
+  const findWebImg=async()=>{
+    if(!f.name&&!f.barcode)return
+    setWebBusy(true);setWebImgs([])
+    try{
+      const r=await api('/api/admin/products/find-image','POST',{id:f.id,name:f.name,name_uz:f.name_uz,barcode:f.barcode})
+      const items=r.items||[]
+      setWebImgs(items)
+      if(items[0]&&!f.image)setF({...f,image:items[0].url})
+    }catch{}
+    setWebBusy(false)
+  }
   return <>
     <input className="in" placeholder="Название (русский)" value={f.name} onChange={set('name')}/>
     <input className="in" placeholder="Nomi (o'zbekcha)" value={f.name_uz||''} onChange={set('name_uz')}/>
@@ -2331,9 +2343,16 @@ function ProductFields({f,setF,dept,tree,cats,families,onReload,onPick,onSave,on
       </div>
     </details>
     <div className="gap" style={{alignItems:'center',marginBottom:8}}>
-      {f.image&&<img src={f.image} style={{width:52,height:52,borderRadius:12,objectFit:'cover'}}/>}
+      {f.image&&<img src={f.image} style={{width:52,height:52,borderRadius:12,objectFit:'cover',border:'1px solid #E5E7EB'}}/>}
       <label className="btn s g" style={{cursor:'pointer'}}>📷 Rasm tanlash<input type="file" accept="image/*" hidden onChange={onPick}/></label>
+      <button type="button" className="btn s g" disabled={webBusy||(!f.name&&!f.barcode)} onClick={findWebImg}>{webBusy?'⏳ Qidirilmoqda…':'🌐 Internetdan topish'}</button>
+      {f.image&&<button type="button" className="btn s g" onClick={()=>setF({...f,image:''})}>✕</button>}
     </div>
+    {webImgs.length>0&&<div className="hrow" style={{gap:8,marginBottom:8,paddingBottom:4}}>
+      {webImgs.map((im,i)=><div key={i} onClick={()=>setF({...f,image:im.url})} style={{flex:'0 0 74px',cursor:'pointer',borderRadius:12,padding:3,border:f.image===im.url?'2px solid var(--b)':'1px solid #E5E7EB',background:'#fff',textAlign:'center'}}>
+        <img src={im.thumb||im.url} alt="" style={{width:64,height:64,objectFit:'contain',borderRadius:8,display:'block',margin:'0 auto'}}/>
+      </div>)}
+    </div>}
     {f.needs_setup&&!dept&&<label className="row" style={{margin:'4px 0 10px',padding:'8px 10px',background:'#ECFDF5',borderRadius:12,border:'1px solid #A7F3D0'}}>
       <span style={{fontSize:13,fontWeight:600,color:'#065F46'}}>✅ Saqlash bilan sotuvga faol qilish</span>
       <input type="checkbox" checked={!!f.activate} onChange={e=>setF({...f,activate:e.target.checked})}/>
@@ -2354,6 +2373,14 @@ function Products({d,act,say,onReload,initState,initCat}){
   const [q,setQ]=useState(''),[st,setSt]=useState(initState||'all'),[cat,setCat]=useState(initCat||''),[prio,setPrio]=useState(''),[fam,setFam]=useState('')
   const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
   const [orgBusy,setOrgBusy]=useState(false),[orgRes,setOrgRes]=useState(null),[orgActSetup,setOrgActSetup]=useState(false)
+  const [imgJob,setImgJob]=useState(null),[imgScope,setImgScope]=useState('active'),[imgBusy,setImgBusy]=useState(false),[rowWebBusy,setRowWebBusy]=useState(0)
+  const loadImgJob=useCallback(()=>{if(dept)return;api('/api/admin/products/auto-images/status').then(r=>{setImgJob(r);if(r.running)setVer(v=>v+1)}).catch(()=>{})},[dept])
+  useEffect(()=>{loadImgJob()},[loadImgJob])
+  useEffect(()=>{
+    if(!imgJob?.running)return
+    const h=setInterval(loadImgJob,3500)
+    return()=>clearInterval(h)
+  },[imgJob?.running,loadImgJob])
   const [syncOpen,setSyncOpen]=useState(false),[syncRows,setSyncRows]=useState([]),[syncFile,setSyncFile]=useState(''),[syncSrc,setSyncSrc]=useState('csv'),[syncMeta,setSyncMeta]=useState(null),[syncProg,setSyncProg]=useState(''),[syncAct,setSyncAct]=useState(true),[syncDeact,setSyncDeact]=useState(true),[syncOnlyInStock,setSyncOnlyInStock]=useState(true),[syncActNew,setSyncActNew]=useState(false),[syncRes,setSyncRes]=useState(null),[syncBusy,setSyncBusy]=useState(false)
   const dq=useDebounced(q)
   const go=(fn,m)=>act(async()=>{await fn();setVer(v=>v+1)},m)
@@ -2574,6 +2601,41 @@ function Products({d,act,say,onReload,initState,initCat}){
       </div>}
     </div>}
 
+    {!dept&&<div className="card" style={{background:'linear-gradient(135deg,#EFF6FF,#FFF1F2)',borderColor:'#BFDBFE',padding:12}}>
+      <div className="row" style={{margin:'0 0 6px'}}>
+        <b style={{fontSize:14}}>🌐 Internetdan tovarlarning o'z rasmini topish</b>
+        {imgJob&&<span className={'badge '+(imgJob.running?'green':'blue')}>{imgJob.running?'🟢 Ishlamoqda':`Rasmsiz faol: ${imgJob.missingActive??'…'} ta`}</span>}
+      </div>
+      <div className="m" style={{marginBottom:8}}>
+        Har bir mahsulotning shtrixkodi va aniq nomi bo'yicha internetdan <b>faqat o'ziga mos haqiqiy rasmini</b> topib joylaydi (mos kelmasa tashlab ketadi, begona rasm qo'ymaydi).
+      </div>
+      <div className="seg" style={{marginBottom:8}}>
+        <button type="button" className={imgScope==='active'?'on':''} onClick={()=>setImgScope('active')}>Faol + Sozlash ({imgJob?.missingActive??0})</button>
+        <button type="button" className={imgScope==='all'?'on':''} onClick={()=>setImgScope('all')}>Barcha rasmsiz ({imgJob?.missingAll??0})</button>
+      </div>
+      {imgJob?.running?<>
+        <div style={{background:'#E5E7EB',height:8,borderRadius:99,overflow:'hidden',marginBottom:6}}>
+          <div style={{width:`${imgJob.total?Math.min(100,Math.round(imgJob.done*100/imgJob.total)):5}%`,height:'100%',background:'linear-gradient(90deg,#3B82F6,#10B981)',transition:'width .3s'}}/>
+        </div>
+        <div className="row" style={{margin:'0 0 8px',fontSize:12.5}}>
+          <span>⏳ {imgJob.done} / {imgJob.total} · ✅ Topildi: <b>{imgJob.found}</b> ta</span>
+          <button type="button" className="btn s g" onClick={()=>api('/api/admin/products/auto-images/stop','POST',{}).then(setImgJob)}>⏹ To'xtatish</button>
+        </div>
+        {imgJob.currentName&&<div className="m" style={{marginBottom:6}}>🔍 Qidirilmoqda: <b>{imgJob.currentName}</b></div>}
+      </>:<button type="button" className="btn s" style={{width:'100%'}} disabled={imgBusy} onClick={async()=>{
+        setImgBusy(true)
+        try{const r=await api('/api/admin/products/auto-images/start','POST',{scope:imgScope});setImgJob(r);say&&say('🌐 Internetdan rasmlarni qidirish boshlandi')}
+        catch(e){say&&say(e.message)}
+        setImgBusy(false)
+      }}>🌐 Rasmsiz tovarlarga internetdan rasm topib qo'yish</button>}
+      {imgJob?.recent?.length>0&&<div className="hrow" style={{gap:8,marginTop:8,paddingBottom:2}}>
+        {imgJob.recent.map(r=><div key={r.id} style={{flex:'0 0 76px',background:'#fff',borderRadius:10,padding:4,border:'1px solid #E5E7EB',textAlign:'center'}}>
+          <img src={r.image} alt="" style={{width:56,height:56,objectFit:'contain',borderRadius:8,display:'block',margin:'0 auto 3px'}}/>
+          <div style={{fontSize:10,fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{r.name}</div>
+        </div>)}
+      </div>}
+    </div>}
+
     <input className="search search-plain" placeholder="🔍 Nomi yoki shtrixkod" value={q} onChange={e=>setQ(e.target.value)}/>
     <div className="chips">
       {[['all','Hammasi'],['on','Faol'],['off','Nofaol'],['setup',`🆕 ${t("Sozlash kerak")}${d.setupCount?` (${d.setupCount})`:''}`],['sale','🔥 '+t('Aksiya')]].map(([k,l])=>
@@ -2605,6 +2667,7 @@ function Products({d,act,say,onReload,initState,initCat}){
       const onS=isSale(p)
       return <div className="card" key={p.id} style={{opacity:p.active||ed?.id===p.id||p.needs_setup?1:.55,borderColor:p.needs_setup?'#FDE68A':undefined}}>
         <div className="row">
+          <Thumb p={p} cls="ci sm"/>
           <div className="row-txt">
             <b>{p.name}</b>
             {p.needs_setup&&<span className="badge amber" style={{marginLeft:6}}>🆕 {t("Sozlash kerak")}</span>}
@@ -2634,6 +2697,19 @@ function Products({d,act,say,onReload,initState,initCat}){
                 setList(prev=>prev.map(x=>x.id===p.id?{...x,active}:x).filter(x=>st==='all'||st==='sale'||st==='setup'||(st==='on'?x.active:!x.active)))
               })
             }}/><i/></label>}
+            {!dept&&!p.image&&<button type="button" className="btn s g" title="Internetdan rasm topish" disabled={rowWebBusy===p.id} onClick={async()=>{
+              setRowWebBusy(p.id)
+              try{
+                const r=await api('/api/admin/products/find-image','POST',{id:p.id,name:p.name,name_uz:p.name_uz,barcode:p.barcode})
+                const best=r.items?.[0]
+                if(best){
+                  await api(`/api/products/${p.id}/image`,'PUT',{image:best.url})
+                  setList(prev=>prev.map(x=>x.id===p.id?{...x,image:best.url}:x))
+                  say&&say('✅ Rasm topildi va saqlandi')
+                }else say&&say('Mos rasm topilmadi')
+              }catch(e){say&&say(e.message)}
+              setRowWebBusy(0)
+            }}>{rowWebBusy===p.id?'⏳':'🌐'}</button>}
             {!dept&&<button className="btn s g" title={t("Tahlil")} onClick={()=>setAnP(p)}>📊</button>}
             <button className={'btn s '+(ed?.id===p.id?'':'g')} onClick={()=>setEd(cur=>cur?.id===p.id?null:{...p,barcode:p.barcode||'',price:String(p.price||''),sale_price:p.sale_price?String(p.sale_price):'',sale_until:toLocalInput(p.sale_until),min_grams:p.min_grams||'',min_sum:p.min_sum||'',weight_g:p.weight_g||'',priority:p.priority||3,family:p.family||'',activate:!!p.needs_setup})}>{ed?.id===p.id?'✕':'✎'}</button>
             {dept&&<button className="btn s g" onClick={()=>confirm("O'chirilsinmi?")&&go(()=>api('/api/products/'+p.id,'DELETE'),"So'rov yuborildi")}>🗑</button>}
@@ -3076,7 +3152,7 @@ function AdminSecurity({act,say}){
   </>
 }
 
-const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.cancelled_by_user':'Mijoz bekor qildi','order.edited':"Mijoz buyurtmani o'zgartirdi",'order.edit_requested':"O'zgartirish so'raldi",'order.edit_allowed':"O'zgartirishga ruxsat",'order.edit_denied':"O'zgartirish rad etildi",'settings.features':'🧩 Funksiyalar boshqaruvi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','products.auto_organize':"🪄 Tovarlar bo'limlarga ajratildi",'ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','role.ai':'🤖 AI yordamchi ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
+const AL={'order.create':'Buyurtma yaratildi','order.accepted':'Buyurtma qabul qilindi','order.preparing':"Buyurtma yig'ilmoqda",'order.ready':'Buyurtma tayyor','order.completed':'Buyurtma topshirildi','order.cancelled':'Buyurtma bekor qilindi','order.cancelled_by_user':'Mijoz bekor qildi','order.edited':"Mijoz buyurtmani o'zgartirdi",'order.edit_requested':"O'zgartirish so'raldi",'order.edit_allowed':"O'zgartirishga ruxsat",'order.edit_denied':"O'zgartirish rad etildi",'settings.features':'🧩 Funksiyalar boshqaruvi','order.weighed':'Tortib bo\'lindi','order.confirm_price':'Mijoz narxni tasdiqladi','order.reject_price':'Mijoz narxni rad etdi','order.age_confirmed':'Yosh tasdiqlandi','order.age_denied':'Yosh tasdiqlanmadi','product.save':'Mahsulot saqlandi','product.add':"Mahsulot qo'shildi",'product.delete':"Mahsulot o'chirildi",'product.active':"Mahsulot holati o'zgardi",'product.stock':"Ombor qoldig'i o'zgardi",'product.pos':"Tartib raqami o'zgardi",'product.pos.reset':'Tartib avtomatikka qaytdi','products.sync':'📥 POS / CSV sinxronizatsiya','products.auto_organize':"🪄 Tovarlar bo'limlarga ajratildi",'products.auto_images':'🌐 Internetdan tovar rasmlari topildi','ai.product_update':'🤖 AI: mahsulot yangilandi','ai.bulk_update':'🤖 AI: ommaviy yangilash','role.set':'Rol berildi','role.custom_add':"Yangi rol qo'shildi",'role.custom_delete':"Rol o'chirildi",'role.broadcast':'Xabar yuborish ruxsati','role.ai':'🤖 AI yordamchi ruxsati','broadcast.send':'Botda xabar yuborildi','security.autoblock':'🛡️ DDoS avto-blok','security.block':'🚫 ID bloklandi','security.unblock':'🔓 ID blokdan chiqarildi','settings.delivery':'Yetkazish sozlamasi','settings.support':"Qo'llab-quvvatlash sozlamasi",'settings.warehouse':'Ombor tizimi','settings.animation':'Bayram animatsiyasi','category.save':'Kategoriya saqlandi','category.delete':"Kategoriya o'chirildi",'card.apply':'Diskont karta arizasi','card.approve':'Diskont karta biriktirildi','card.reject':'Diskont karta rad etildi','card.bind':'Diskont karta yangilandi','card.remove':'Diskont karta olib tashlandi'}
 const AG=[['all','Hammasi',null,'#6B7280'],['order','📦 Buyurtmalar',/^order\./,'#3B82F6'],['prod','🛍 Mahsulotlar',/^(products?|change|category|ai)\./,'#F59E0B'],['content','🖼 Kontent',/^(content|broadcast)\./,'#10B981'],['user','👤 Foydalanuvchilar',/^(role|card)\./,'#8B5CF6'],['sec','🛡️ Xavfsizlik',/^security\./,'#E11D48'],['set','⚙️ Sozlamalar',/^settings\./,'#6B7280']]
 
 function Audit(){
