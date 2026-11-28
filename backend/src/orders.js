@@ -230,6 +230,10 @@ exports.syncProducts=async(actorId,rawItems,opts={})=>{
    saved={...res,runId,total:(prev.total||0)+res.total,updated:(prev.updated||0)+res.updated,activated:(prev.activated||0)+res.activated,deactivated:(prev.deactivated||0)+res.deactivated,created:(prev.created||0)+res.created,skipped:(prev.skipped||0)+res.skipped};
   }
  }
+ try{await ORG.autoOrganize(actorId||0,{minWeightSum:30000})}catch(_){}
+ const afterCounts=(await q("select count(*)::int total_now,count(*) filter(where active)::int active_now,count(*) filter(where needs_setup)::int setup_now from products")).rows[0]||{};
+ res.activeNow=afterCounts.active_now??res.activeNow;res.setupNow=afterCounts.setup_now??res.setupNow;
+ saved.activeNow=res.activeNow;saved.setupNow=res.setupNow;
  await setSetting('last_sync',saved);
  await audit(actorId||0,'products.sync','products',res);
  return res;

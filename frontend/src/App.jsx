@@ -2549,7 +2549,7 @@ function Products({d,act,say,onReload,initState,initCat}){
         <span className="badge green">30 000 so'm / kg</span>
       </div>
       <div className="m" style={{marginBottom:8}}>
-        • Barcha faol va <b>🆕 Sozlash kerak</b> tovarlarni nomiga qarab tegishli bo'limlarga (Meva, Sabzavot, Kolbasa, Sut, Pishloq, Ichimlik, Shirinlik va h.k.) ajratadi;<br/>
+        • Barcha <b>Faol</b>, <b>Nofaol</b> va <b>🆕 Sozlash kerak</b> tovarlarni nomiga qarab o'z ichki bo'limlariga (Non — 3 ta, Sut — 4 ta, Go'sht/Kolbasa, Meva/Sabzavot, Ichimlik, Shirinlik va h.k.) ajratadi;<br/>
         • Ruscha nomli tovarlarga <b>o'zbekcha muqobil nom</b> yozadi;<br/>
         • Barcha kiloli (og'irlikli) tovarlarga <b>minimal 30 000 so'm</b> belgilaydi.
       </div>
@@ -2567,7 +2567,7 @@ function Products({d,act,say,onReload,initState,initCat}){
         setOrgBusy(false)
       }}>{orgBusy?'⏳ Ajratilmoqda…':"🪄 Bo'limlarga ajratish + O'zbekcha nom + Kiloga 30 000 so'm"}</button>
       {orgRes&&<div style={{marginTop:8,padding:8,borderRadius:10,background:'#ECFDF5',color:'#065F46',fontSize:12.5,fontWeight:600}}>
-        ✅ Tekshirildi: {orgRes.scanned} ta · Bo'limga joylandi: <b>{orgRes.catMoved}</b> ta · O'zbekcha nom berildi: <b>{orgRes.uzFilled}</b> ta · Kiloli 30 000 so'm: <b>{orgRes.weightUpdated}</b> ta{orgRes.subCreated>0?` · Yangi ichki bo'lim: ${orgRes.subCreated} ta`:''}
+        ✅ Jami tekshirildi: <b>{orgRes.scanned}</b> ta (Faol: {orgRes.activeCnt||0} · Nofaol: {orgRes.inactiveCnt||0}) · Bo'limga joylandi: <b>{orgRes.catMoved}</b> ta · Sozlashdan chiqdi: <b>{orgRes.setupCleared||0}</b> ta · O'zbekcha nom: <b>{orgRes.uzFilled}</b> ta · Kiloli 30 000 so'm: <b>{orgRes.weightUpdated}</b> ta{orgRes.subCreated>0?` · Yangi ichki bo'lim: ${orgRes.subCreated} ta`:''}
         {orgRes.byCatCount&&<div className="chips" style={{marginTop:6,paddingBottom:0}}>
           {Object.entries(orgRes.byCatCount).sort((a,b)=>b[1]-a[1]).map(([cnm,cnt])=><button key={cnm} type="button" className="chip" style={{fontSize:11.5,padding:'4px 9px'}} onClick={()=>setCat(cnm)}>📁 {cnm}: <b>{cnt}</b></button>)}
         </div>}
