@@ -2373,7 +2373,7 @@ function Products({d,act,say,onReload,initState,initCat}){
   const [q,setQ]=useState(''),[st,setSt]=useState(initState||'all'),[cat,setCat]=useState(initCat||''),[prio,setPrio]=useState(''),[fam,setFam]=useState('')
   const [list,setList]=useState([]),[more,setMore]=useState(false),[pg,setPg]=useState(0),[ver,setVer]=useState(0)
   const [orgBusy,setOrgBusy]=useState(false),[orgRes,setOrgRes]=useState(null),[orgActSetup,setOrgActSetup]=useState(false)
-  const [imgJob,setImgJob]=useState(null),[imgScope,setImgScope]=useState('active'),[imgBusy,setImgBusy]=useState(false),[rowWebBusy,setRowWebBusy]=useState(0)
+  const [imgJob,setImgJob]=useState(null),[imgScope,setImgScope]=useState('active'),[imgReplace,setImgReplace]=useState(true),[imgBusy,setImgBusy]=useState(false),[rowWebBusy,setRowWebBusy]=useState(0)
   const loadImgJob=useCallback(()=>{if(dept)return;api('/api/admin/products/auto-images/status').then(r=>{setImgJob(r);if(r.running)setVer(v=>v+1)}).catch(()=>{})},[dept])
   useEffect(()=>{loadImgJob()},[loadImgJob])
   useEffect(()=>{
@@ -2609,10 +2609,14 @@ function Products({d,act,say,onReload,initState,initCat}){
       <div className="m" style={{marginBottom:8}}>
         Har bir mahsulotning shtrixkodi va aniq nomi bo'yicha internetdan <b>faqat o'ziga mos haqiqiy rasmini</b> topib joylaydi (mos kelmasa tashlab ketadi, begona rasm qo'ymaydi).
       </div>
-      <div className="seg" style={{marginBottom:8}}>
-        <button type="button" className={imgScope==='active'?'on':''} onClick={()=>setImgScope('active')}>Faol + Sozlash ({imgJob?.missingActive??0})</button>
-        <button type="button" className={imgScope==='all'?'on':''} onClick={()=>setImgScope('all')}>Barcha rasmsiz ({imgJob?.missingAll??0})</button>
+      <div className="seg" style={{marginBottom:6}}>
+        <button type="button" className={imgScope==='active'?'on':''} onClick={()=>setImgScope('active')}>Faol + Sozlash ({imgJob?.missingActive??0} rasmsiz)</button>
+        <button type="button" className={imgScope==='all'?'on':''} onClick={()=>setImgScope('all')}>Barcha tovarlar ({imgJob?.missingAll??0} rasmsiz)</button>
       </div>
+      <label className="row" style={{margin:'0 0 8px',fontSize:12.5}}>
+        <span>✨ Oldingi sifatsiz avto-rasmlarni ham HD oq fonliga yangilash</span>
+        <input type="checkbox" checked={imgReplace} onChange={e=>setImgReplace(e.target.checked)}/>
+      </label>
       {imgJob?.running?<>
         <div style={{background:'#E5E7EB',height:8,borderRadius:99,overflow:'hidden',marginBottom:6}}>
           <div style={{width:`${imgJob.total?Math.min(100,Math.round(imgJob.done*100/imgJob.total)):5}%`,height:'100%',background:'linear-gradient(90deg,#3B82F6,#10B981)',transition:'width .3s'}}/>
@@ -2624,7 +2628,7 @@ function Products({d,act,say,onReload,initState,initCat}){
         {imgJob.currentName&&<div className="m" style={{marginBottom:6}}>🔍 Qidirilmoqda: <b>{imgJob.currentName}</b></div>}
       </>:<button type="button" className="btn s" style={{width:'100%'}} disabled={imgBusy} onClick={async()=>{
         setImgBusy(true)
-        try{const r=await api('/api/admin/products/auto-images/start','POST',{scope:imgScope});setImgJob(r);say&&say('🌐 Internetdan rasmlarni qidirish boshlandi')}
+        try{const r=await api('/api/admin/products/auto-images/start','POST',{scope:imgScope,replaceAuto:imgReplace});setImgJob(r);say&&say('🌐 HD oq fonli rasmlarni qidirish boshlandi')}
         catch(e){say&&say(e.message)}
         setImgBusy(false)
       }}>🌐 Rasmsiz tovarlarga internetdan rasm topib qo'yish</button>}
@@ -2697,7 +2701,7 @@ function Products({d,act,say,onReload,initState,initCat}){
                 setList(prev=>prev.map(x=>x.id===p.id?{...x,active}:x).filter(x=>st==='all'||st==='sale'||st==='setup'||(st==='on'?x.active:!x.active)))
               })
             }}/><i/></label>}
-            {!dept&&!p.image&&<button type="button" className="btn s g" title="Internetdan rasm topish" disabled={rowWebBusy===p.id} onClick={async()=>{
+            {!dept&&<button type="button" className="btn s g" title="Internetdan HD oq fonli rasm topish" disabled={rowWebBusy===p.id} onClick={async()=>{
               setRowWebBusy(p.id)
               try{
                 const r=await api('/api/admin/products/find-image','POST',{id:p.id,name:p.name,name_uz:p.name_uz,barcode:p.barcode})
